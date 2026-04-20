@@ -3,6 +3,7 @@ use crate::error::{AppError, AppResult};
 use crate::types::{GameConfig, GameMode, WeightEntry};
 use dashmap::DashMap;
 use rand::RngCore;
+use serde::Serialize;
 use serde_json::value::RawValue;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -191,6 +192,25 @@ impl MathEngine {
         })
     }
 
+    /// Compute notable bet ids per mode (lowest-payout / "average" winning hit
+    /// / max-payout). Loads each mode's sampler — already cached after the
+    /// first call — so a second call is essentially free. Used by the test
+    /// view's "Notable rounds" panel.
+    pub async fn game_bet_stats(&self, game: &str) -> AppResult<Vec<ModeBetStats>> {
+        let cfg = self.load_config(game).await?;
+        let mut out = Vec::with_capacity(cfg.modes.len());
+        for mode in &cfg.modes {
+            let assets = self.load_assets(game, mode).await?;
+            if let Some(stats) = compute_bet_stats(&assets.sampler) {
+                out.push(ModeBetStats {
+                    mode: mode.name.clone(),
+                    stats,
+                });
+            }
+        }
+        Ok(out)
+    }
+
     /// Fetch the raw event state + payout multiplier for replay / bet-replay endpoint.
     pub async fn replay_event(
         &self,
@@ -213,6 +233,86 @@ impl MathEngine {
             state,
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct NotableBet {
+    #[serde(rename = "eventId")]
+    pub event_id: u32,
+    #[serde(rename = "payoutMultiplier")]
+    pub payout_multiplier: u32,
+}
+
+/// Three "interesting" bet ids picked from a mode's lookup table:
+/// - `min`: a no-win round (payoutMultiplier = 0 if any exist, else the
+///   smallest payout)
+/// - `avg`: the round whose payoutMultiplier is closest to the
+///   weight-weighted average of *winning* multipliers (i.e. the typical
+///   look of a winning spin)
+/// - `max`: the highest payoutMultiplier in the table
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct BetStats {
+    pub min: NotableBet,
+    pub avg: NotableBet,
+    pub max: NotableBet,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeBetStats {
+    pub mode: String,
+    pub stats: BetStats,
+}
+
+fn notable_from(entry: &WeightEntry) -> NotableBet {
+    NotableBet {
+        event_id: entry.event_id,
+        payout_multiplier: entry.payout_multiplier,
+    }
+}
+
+fn compute_bet_stats(sampler: &WeightSampler) -> Option<BetStats> {
+    if sampler.entries.is_empty() {
+        return None;
+    }
+
+    let min_entry = sampler
+        .entries
+        .iter()
+        .find(|e| e.payout_multiplier == 0)
+        .or_else(|| sampler.entries.iter().min_by_key(|e| e.payout_multiplier))?;
+
+    let max_entry = sampler.entries.iter().max_by_key(|e| e.payout_multiplier)?;
+
+    // Weighted mean of winning payoutMultipliers — represents the EV of a
+    // winning spin. We then pick the entry whose pm is closest to that mean.
+    let winners: Vec<&WeightEntry> = sampler
+        .entries
+        .iter()
+        .filter(|e| e.payout_multiplier > 0)
+        .collect();
+
+    let avg_entry = if winners.is_empty() {
+        // No winners at all: avg falls back to min (degenerate but coherent).
+        min_entry
+    } else {
+        let total_w: u128 = winners.iter().map(|e| e.weight as u128).sum();
+        let weighted_sum: u128 = winners
+            .iter()
+            .map(|e| e.weight as u128 * e.payout_multiplier as u128)
+            .sum();
+        let avg_pm = (weighted_sum / total_w.max(1)) as u32;
+        winners
+            .iter()
+            .min_by_key(|e| e.payout_multiplier.abs_diff(avg_pm))
+            .copied()
+            .unwrap_or(min_entry)
+    };
+
+    Some(BetStats {
+        min: notable_from(min_entry),
+        avg: notable_from(avg_entry),
+        max: notable_from(max_entry),
+    })
 }
 
 pub struct ReplayResult {

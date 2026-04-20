@@ -42,6 +42,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/devtool/saved-rounds/:id",
             patch(update_saved_round).delete(delete_saved_round),
         )
+        .route("/api/devtool/bet-stats/:game", get(get_bet_stats))
         .with_state(state)
 }
 
@@ -270,4 +271,19 @@ pub struct OkResponse {
 async fn delete_saved_round(Path(id): Path<String>) -> AppResult<Json<OkResponse>> {
     saved_rounds::delete(&id).await?;
     Ok(Json(OkResponse { ok: true }))
+}
+
+// ========== Notable bets per mode (for the test view's "Notable rounds" panel) ==========
+
+#[derive(Serialize)]
+pub struct BetStatsResponse {
+    pub modes: Vec<crate::math_engine::ModeBetStats>,
+}
+
+async fn get_bet_stats(
+    State(state): State<Arc<AppState>>,
+    Path(game): Path<String>,
+) -> AppResult<Json<BetStatsResponse>> {
+    let modes = state.engine.game_bet_stats(&game).await?;
+    Ok(Json(BetStatsResponse { modes }))
 }

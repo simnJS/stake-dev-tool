@@ -280,6 +280,21 @@ export const historyHttp = {
   }
 };
 
+// ---- Notable bets per mode (computed from the lookup table) ----
+
+export type NotableBet = { eventId: number; payoutMultiplier: number };
+export type BetStats = { min: NotableBet; avg: NotableBet; max: NotableBet };
+export type ModeBetStats = { mode: string; stats: BetStats };
+
+export const betStatsHttp = {
+  get: async (gameSlug: string): Promise<ModeBetStats[]> => {
+    const r = await fetch(`/api/devtool/bet-stats/${encodeURIComponent(gameSlug)}`);
+    if (!r.ok) throw new Error(`bet-stats: ${r.status}`);
+    const j = (await r.json()) as { modes: ModeBetStats[] };
+    return j.modes;
+  }
+};
+
 export function replayUrl(
   gameUrl: string,
   gameSlug: string,

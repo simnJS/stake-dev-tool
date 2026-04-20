@@ -11,11 +11,13 @@
     lastEventHttp,
     historyHttp,
     savedRoundsHttp,
+    betStatsHttp,
     replayUrl,
     type ResolutionPreset,
     type LastEvent,
     type EventEntry,
-    type SavedRound
+    type SavedRound,
+    type ModeBetStats
   } from '$lib/api';
 
   // Stake social-mode currencies (XGC = Gold Coin, XSC = Stake Cash) only
@@ -103,10 +105,67 @@
   let saveDescription = $state('');
   let showSaveInput = $state(false);
 
+  // ---- Notable rounds (computed from books per mode) ----
+
+  let notableRounds = $state<ModeBetStats[]>([]);
+  let notableLoading = $state(false);
+  let notableLoaded = $state(false);
+  let showNotable = $state(false);
+
   async function reloadSavedRounds() {
     if (!gameSlug) return;
     try {
       savedRounds = await savedRoundsHttp.list(gameSlug);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function loadNotableRounds() {
+    if (!gameSlug || notableLoading) return;
+    notableLoading = true;
+    try {
+      notableRounds = await betStatsHttp.get(gameSlug);
+      notableLoaded = true;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      notableLoading = false;
+    }
+  }
+
+  async function toggleNotablePanel() {
+    showNotable = !showNotable;
+    if (showNotable && !notableLoaded) await loadNotableRounds();
+  }
+
+  async function applyForcedFromNotable(mode: string, eventId: number) {
+    forcedMode = mode;
+    forcedEventId = eventId;
+    busy = true;
+    try {
+      const resp = await forcedEventHttp.set(mode, eventId);
+      forcedEventBanner = resp.forced;
+      info = `Forced: ${mode} #${eventId}.`;
+      setTimeout(() => (info = null), 2500);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Bookmark a notable bet with the auto-set description ("min" / "average win"
+   *  / "max win"). No popup — these descriptions are canonical. */
+  async function bookmarkNotable(mode: string, eventId: number, kind: 'min' | 'avg' | 'max') {
+    if (!gameSlug) return;
+    if (isBookmarked(mode, eventId)) return;
+    const description = kind === 'min' ? 'min' : kind === 'avg' ? 'average win' : 'max win';
+    try {
+      await savedRoundsHttp.create(gameSlug, mode, eventId, description);
+      await reloadSavedRounds();
+      info = `Bookmarked ${mode} #${eventId} (${description}).`;
+      setTimeout(() => (info = null), 2000);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -747,6 +806,92 @@
                           <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Notable rounds (auto-detected from books) -->
+        <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40">
+          <button
+            onclick={toggleNotablePanel}
+            class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:text-zinc-200"
+          >
+            <span>
+              Notable rounds
+              {#if notableLoaded}
+                <span class="text-zinc-600">({notableRounds.length})</span>
+              {/if}
+            </span>
+            <svg
+              class="h-3 w-3 transition {showNotable ? 'rotate-180' : ''}"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {#if showNotable}
+            <div class="border-t border-zinc-800/60 p-2">
+              {#if notableLoading}
+                <div class="text-[10px] text-zinc-500">Loading…</div>
+              {:else if notableRounds.length === 0}
+                <div class="text-[10px] text-zinc-600">
+                  No modes detected. Make sure the math folder has weights.
+                </div>
+              {:else}
+                <div class="text-[9px] uppercase tracking-wider text-zinc-600 mb-1">
+                  Auto-picked from each mode's lookup table. Click ★ to bookmark.
+                </div>
+                <div class="max-h-72 space-y-2 overflow-y-auto">
+                  {#each notableRounds as m (m.mode)}
+                    <div class="rounded border border-zinc-800/60 bg-zinc-950/40 p-1.5">
+                      <div class="mb-1 font-mono text-[11px] font-semibold text-sky-300">
+                        {m.mode}
+                      </div>
+                      <div class="space-y-0.5">
+                        {#each [
+                          { kind: 'min' as const, label: 'min', bet: m.stats.min, color: 'text-zinc-400' },
+                          { kind: 'avg' as const, label: 'avg', bet: m.stats.avg, color: 'text-amber-300' },
+                          { kind: 'max' as const, label: 'max', bet: m.stats.max, color: 'text-emerald-300' }
+                        ] as row (row.kind)}
+                          {@const bk = isBookmarked(m.mode, row.bet.eventId)}
+                          <div class="flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-zinc-800/40">
+                            <span class="w-7 text-[9px] uppercase tracking-wider text-zinc-500">
+                              {row.label}
+                            </span>
+                            <span class="font-mono text-[11px] {row.color}">
+                              #{row.bet.eventId}
+                            </span>
+                            <span class="ml-auto font-mono text-[10px] text-zinc-500">
+                              ×{(row.bet.payoutMultiplier / 100).toFixed(2)}
+                            </span>
+                            <button
+                              onclick={() => applyForcedFromNotable(m.mode, row.bet.eventId)}
+                              disabled={busy}
+                              title="Force this round"
+                              class="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-300 transition hover:bg-amber-500 hover:text-zinc-950 disabled:opacity-40"
+                            >
+                              Force
+                            </button>
+                            <button
+                              onclick={() => bookmarkNotable(m.mode, row.bet.eventId, row.kind)}
+                              disabled={bk}
+                              title={bk ? 'Already bookmarked' : `Bookmark as "${row.kind === 'min' ? 'min' : row.kind === 'avg' ? 'average win' : 'max win'}"`}
+                              class="leading-none transition {bk
+                                ? 'cursor-default text-amber-400'
+                                : 'text-zinc-600 hover:text-amber-400'}"
+                            >
+                              {bk ? '★' : '☆'}
+                            </button>
+                          </div>
+                        {/each}
+                      </div>
                     </div>
                   {/each}
                 </div>
