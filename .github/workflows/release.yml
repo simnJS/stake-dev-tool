@@ -120,9 +120,14 @@ jobs:
           # endpoint returns 404 for drafts). Get asset list + body.
           release_json=$(gh release view "$TAG" --json assets,body --repo "$REPO")
 
+          # Construct the stable public URL from tag + asset name, NOT the URL
+          # returned by gh — drafts return temporary `untagged-xxx` slugs that
+          # break once the release is published.
           asset_url() {
-            echo "$release_json" | jq -r --arg name "$1" \
-              '.assets[] | select(.name==$name) | .url'
+            local name="$1"
+            # URL-encode spaces to %20 and keep everything else.
+            local encoded=$(echo "$name" | jq -Rr @uri)
+            echo "https://github.com/${REPO}/releases/download/${TAG}/${encoded}"
           }
           asset_names=$(echo "$release_json" | jq -r '.assets[].name')
 
