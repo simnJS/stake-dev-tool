@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-04-21
+
+### Added
+
+- **Bookmark from Bet History** — each row in the per-frame history table
+  now has a ★ button that opens a popup to attach an optional description
+  before saving the round. Already-bookmarked rows show a filled ★.
+
+### Changed
+
+- **History toggle relocated** — the "Bet history" button now sits directly
+  below the iframe (next to the panel it opens) instead of above it, so the
+  trigger and the content live in the same vertical zone.
+- **Release asset names cleaned up** — installers and updater artefacts now
+  follow a single consistent scheme:
+  `Stake-Dev-Tool-vX.Y.Z-{windows,macos,linux}-{x64,arm64}.<ext>`. Replaces
+  the inconsistent default Tauri names (`Stake.Dev.Tool_0.x.y_amd64.AppImage`,
+  `Stake.Dev.Tool_aarch64.app.tar.gz`, …).
+
 ## [0.3.0] — 2026-04-20
 
 ### Added
