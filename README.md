@@ -110,7 +110,7 @@ Artifacts land under `target/release/`:
 
 ### Math folder layout
 
-Each game lives in its own directory, flat layout (no `math/` subfolder):
+Each game lives in its own directory:
 
 ```
 <math_root>/
