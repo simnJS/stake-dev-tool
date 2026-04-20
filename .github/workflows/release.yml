@@ -12,6 +12,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     strategy:
@@ -64,10 +67,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile=false
+
+      # tauri::generate_context! macro evaluates frontendDist at compile time.
+      # Explicitly build the UI before tauri-action so ui/build exists regardless
+      # of whether tauri-action picks up beforeBuildCommand.
+      - run: pnpm --filter ui build
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
