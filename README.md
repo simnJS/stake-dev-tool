@@ -38,7 +38,7 @@ infrastructure.
 ### Option A — download the installer (recommended)
 
 Grab the latest `.msi` or `.exe` installer from the
-[Releases page](https://github.com/YOUR_USERNAME/stake-dev-tool/releases).
+[Releases page](https://github.com/simnJS/stake-dev-tool/releases).
 
 - **Windows 10/11 (x86_64)** — `Stake-Dev-Tool_x.y.z_x64_en-US.msi` or the
   raw `.exe` from `target/release/`
@@ -61,7 +61,7 @@ Run the installer, launch **Stake Dev Tool** from the Start menu.
 
 ```bash
 # clone
-git clone https://github.com/YOUR_USERNAME/stake-dev-tool.git
+git clone https://github.com/simnJS/stake-dev-tool.git
 cd stake-dev-tool
 
 # install JS deps (root pnpm workspace)
