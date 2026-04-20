@@ -164,6 +164,62 @@
     }
   }
 
+  function isBookmarked(mode: string, eventId: number): boolean {
+    return savedRounds.some((r) => r.mode === mode && r.eventId === eventId);
+  }
+
+  // Modal state for "Bookmark from history" — opens when the user clicks ★ on
+  // a history row so they can attach a description before saving.
+  let bookmarkModal = $state<{
+    mode: string;
+    eventId: number;
+    description: string;
+    saving: boolean;
+  } | null>(null);
+
+  function openBookmarkModal(entry: EventEntry) {
+    if (isBookmarked(entry.mode, entry.eventId)) return;
+    bookmarkModal = {
+      mode: entry.mode,
+      eventId: entry.eventId,
+      description: '',
+      saving: false
+    };
+  }
+
+  function closeBookmarkModal() {
+    bookmarkModal = null;
+  }
+
+  // Focus the description input when the modal opens (replaces `autofocus`,
+  // which svelte-check flags as an a11y antipattern).
+  let bookmarkInputEl = $state<HTMLInputElement | null>(null);
+  $effect(() => {
+    if (bookmarkModal && bookmarkInputEl) {
+      bookmarkInputEl.focus();
+    }
+  });
+
+  async function confirmBookmark() {
+    if (!bookmarkModal || !gameSlug) return;
+    bookmarkModal.saving = true;
+    try {
+      await savedRoundsHttp.create(
+        gameSlug,
+        bookmarkModal.mode,
+        bookmarkModal.eventId,
+        bookmarkModal.description.trim()
+      );
+      await reloadSavedRounds();
+      info = `Bookmarked ${bookmarkModal.mode} #${bookmarkModal.eventId}.`;
+      setTimeout(() => (info = null), 2000);
+      bookmarkModal = null;
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+      if (bookmarkModal) bookmarkModal.saving = false;
+    }
+  }
+
   async function applyForcedEvent() {
     if (forcedEventId === null || forcedEventId <= 0) {
       error = 'Enter a valid event id.';
@@ -939,7 +995,7 @@
           </div>
           <!-- Big last-event strip (above the iframe, full-width of frame) -->
           <div
-            class="mb-1 flex items-center justify-between gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1.5"
+            class="mb-1 flex items-center gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1.5"
             style="width: {frame.res.width}px;"
           >
             {#if frame.lastEvent?.eventId != null}
@@ -962,17 +1018,6 @@
             {:else}
               <span class="text-xs text-zinc-600">Waiting for first spin…</span>
             {/if}
-            <button
-              onclick={() => (frame.showHistory = !frame.showHistory)}
-              disabled={frame.history.length === 0}
-              title="Toggle event history"
-              class="flex items-center gap-1 rounded border border-zinc-800 bg-zinc-950/40 px-2 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
-            >
-              <svg class="h-3 w-3 transition {frame.showHistory ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-              History ({frame.history.length})
-            </button>
           </div>
 
           <div
@@ -1013,12 +1058,28 @@
             {/if}
           </div>
 
+          <!-- History toggle (directly below the iframe so the panel it
+               opens lives in the same vertical zone as its trigger) -->
+          <button
+            onclick={() => (frame.showHistory = !frame.showHistory)}
+            disabled={frame.history.length === 0}
+            title="Toggle event history"
+            style="width: {frame.res.width}px;"
+            class="mt-1 flex items-center justify-between gap-2 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+          >
+            <span>Bet history ({frame.history.length})</span>
+            <svg class="h-3 w-3 transition {frame.showHistory ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
           {#if frame.showHistory && frame.history.length > 0}
             <div
               class="mt-1 overflow-hidden rounded-md border border-zinc-800/60 bg-zinc-950/40"
               style="width: {frame.res.width}px;"
             >
-              <div class="grid grid-cols-[auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              <div class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span></span>
                 <span>#</span>
                 <span>Event</span>
                 <span>Mode</span>
@@ -1029,11 +1090,22 @@
               <div class="max-h-64 overflow-y-auto font-mono text-xs">
                 {#each frame.history as entry, i (entry.at + '-' + entry.eventId)}
                   {@const hit = entry.payout > 0}
+                  {@const bookmarked = isBookmarked(entry.mode, entry.eventId)}
                   <div
-                    class="grid grid-cols-[auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-900/40 px-3 py-1 transition hover:bg-zinc-800/30 {entry.forced
+                    class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-900/40 px-3 py-1 transition hover:bg-zinc-800/30 {entry.forced
                       ? 'bg-amber-500/5'
                       : ''}"
                   >
+                    <button
+                      onclick={() => openBookmarkModal(entry)}
+                      disabled={bookmarked}
+                      title={bookmarked ? 'Already bookmarked' : 'Bookmark this round'}
+                      class="leading-none transition {bookmarked
+                        ? 'cursor-default text-amber-400'
+                        : 'text-zinc-600 hover:text-amber-400'}"
+                    >
+                      {bookmarked ? '★' : '☆'}
+                    </button>
                     <span class="text-zinc-600">{i + 1}</span>
                     <span class="font-semibold text-sky-300">#{entry.eventId}</span>
                     <span class="truncate text-zinc-400">
@@ -1063,4 +1135,84 @@
       {/each}
     </div>
   </main>
+
+  {#if bookmarkModal}
+    <!-- Backdrop + centered modal. Click backdrop or Esc to cancel. -->
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="bookmark-modal-title"
+      tabindex="-1"
+      onkeydown={(e) => {
+        if (e.key === 'Escape') closeBookmarkModal();
+      }}
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onclick={closeBookmarkModal}
+        class="absolute inset-0 cursor-default"
+      ></button>
+      <div
+        class="relative w-[420px] max-w-[90vw] rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <h2 id="bookmark-modal-title" class="text-sm font-semibold text-zinc-100">
+            Bookmark this round
+          </h2>
+          <button
+            onclick={closeBookmarkModal}
+            class="rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200"
+            aria-label="Cancel"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="mb-3 flex items-baseline gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+          <span class="text-[10px] uppercase tracking-wider text-zinc-500">Round</span>
+          <span class="font-mono text-sm text-sky-300">{bookmarkModal.mode}</span>
+          <span class="font-mono text-sm font-semibold text-zinc-100">
+            #{bookmarkModal.eventId}
+          </span>
+        </div>
+        <label
+          for="bookmark-description"
+          class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500"
+        >
+          Description (optional)
+        </label>
+        <input
+          id="bookmark-description"
+          type="text"
+          bind:this={bookmarkInputEl}
+          bind:value={bookmarkModal.description}
+          placeholder="e.g. Big bonus trigger, near miss, …"
+          maxlength="120"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') confirmBookmark();
+          }}
+          class="mb-4 w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+        />
+        <div class="flex justify-end gap-2">
+          <button
+            onclick={closeBookmarkModal}
+            class="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800"
+          >
+            Cancel
+          </button>
+          <button
+            onclick={confirmBookmark}
+            disabled={bookmarkModal.saving}
+            class="flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+          >
+            <span>★</span>
+            {bookmarkModal.saving ? 'Saving…' : 'Bookmark'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
