@@ -1,0 +1,15 @@
+{
+  "name": "stake-dev-tool-root",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "ui:dev": "pnpm --filter ui dev",
+    "ui:build": "pnpm --filter ui build",
+    "tauri:dev": "tauri dev --config crates/desktop/tauri.conf.json",
+    "tauri:build": "tauri build --config crates/desktop/tauri.conf.json",
+    "tauri:info": "tauri info --config crates/desktop/tauri.conf.json"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

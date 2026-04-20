@@ -1,0 +1,27 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+ui/build/
+
+# Tauri generated
+crates/desktop/gen/
+
+# Math data (user-provided, can be huge)
+math/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
