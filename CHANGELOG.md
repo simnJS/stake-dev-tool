@@ -27,7 +27,10 @@ First public release.
 - **Tauri desktop app** (`crates/desktop`):
   - Game folder picker + auto-detection of `index.json`
   - Embedded LGS lifecycle (start/stop, auto-restart on folder change)
-  - Local Root CA generation + install into Windows user trust store (no UAC)
+  - Local Root CA generation + install into the user trust store, per-OS:
+    - Windows — user "Root" store via `certutil`, no UAC
+    - macOS — login keychain via `/usr/bin/security` (one password prompt)
+    - Linux — user NSS database via `certutil` (needs `libnss3-tools`)
   - Dedicated Chromium launcher with `--max-active-webgl-contexts=64`
   - Profile persistence (game path + URL + resolution snapshot)
 - **Test view** (SvelteKit, served over HTTPS by LGS):
@@ -49,5 +52,6 @@ First public release.
 
 ### Platforms
 
-- Windows 10 / 11 (x86_64) — .msi + .exe installers in Releases.
-- macOS / Linux — buildable from source, installers not yet packaged.
+- Windows 10 / 11 (x86_64) — `.msi` + `.exe` (NSIS) installers.
+- macOS 12+ on Apple Silicon (`aarch64`) — `.dmg`. Intel Macs are not built.
+- Linux (`x86_64`) — `.AppImage` + `.deb`.

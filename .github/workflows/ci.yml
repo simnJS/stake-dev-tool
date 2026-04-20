@@ -12,6 +12,9 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SCCACHE_GHA_ENABLED: 'true'
+  RUSTC_WRAPPER: 'sccache'
+  CARGO_INCREMENTAL: '0'
 
 jobs:
   rust:
@@ -43,6 +46,9 @@ jobs:
           rustup default stable
           rustup component add clippy rustfmt
           rustc --version
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
 
       - uses: Swatinem/rust-cache@v2
 

@@ -72,7 +72,7 @@ fn now_ms() -> u64 {
 
 pub async fn list() -> Result<Vec<Profile>> {
     let mut f = load().await?;
-    f.profiles.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    f.profiles.sort_by_key(|p| std::cmp::Reverse(p.updated_at));
     Ok(f.profiles)
 }
 

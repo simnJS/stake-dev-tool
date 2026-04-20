@@ -20,8 +20,9 @@ infrastructure.
   you define. Each iframe runs an isolated session so concurrent state bugs
   surface immediately.
 - **Local HTTPS with trusted cert** — the LGS serves TLS with a local Root CA
-  installed in your Windows user trust store (no UAC prompt). Zero browser
-  warnings, zero hacks in your game code.
+  installed in your user trust store. Zero browser warnings, zero hacks in your
+  game code. Works on Windows (no UAC), macOS (login keychain, one password
+  prompt), and Linux (Chromium NSS store, `libnss3-tools` required).
 - **Dedicated Chromium launcher** — opens a separate Chrome/Edge/Brave process
   with `--max-active-webgl-contexts=64` so PixiJS shader compilation survives
   running 7+ instances at once.
@@ -37,13 +38,14 @@ infrastructure.
 
 ### Option A — download the installer (recommended)
 
-Grab the latest `.msi` or `.exe` installer from the
+Grab the latest installer for your platform from the
 [Releases page](https://github.com/simnJS/stake-dev-tool/releases).
 
-- **Windows 10/11 (x86_64)** — `Stake-Dev-Tool_x.y.z_x64_en-US.msi` or the
-  raw `.exe` from `target/release/`
-- **macOS / Linux** — build from source (see below); installers are not yet
-  pre-built.
+- **Windows 10/11 (x86_64)** — `Stake-Dev-Tool_x.y.z_x64_en-US.msi` or
+  `Stake-Dev-Tool_x.y.z_x64-setup.exe`
+- **macOS — Apple Silicon (M1/M2/M3/…)** — `Stake-Dev-Tool_x.y.z_aarch64.dmg`.
+  Intel Macs are not supported; if that's a blocker, open an issue.
+- **Linux (x86_64)** — `stake-dev-tool_x.y.z_amd64.AppImage` or `.deb`
 
 Run the installer, launch **Stake Dev Tool** from the Start menu.
 
@@ -83,7 +85,15 @@ Artifacts land under `target/release/`:
 ## Quick start
 
 1. **Launch the app**. On first start, click **Install Local CA** in the amber
-   banner. No UAC prompt — it installs into your user trust store.
+   banner:
+   - **Windows** — silent install into the user "Root" store, no UAC prompt.
+   - **macOS** — one password prompt (login keychain). Covers Safari, Chrome,
+     Edge, Brave. Firefox has its own NSS store; trust manually in
+     `about:preferences#privacy` the first time.
+   - **Linux** — installs into `~/.pki/nssdb` (Chromium family). **Requires
+     `libnss3-tools`** (`sudo apt install libnss3-tools` on Debian/Ubuntu,
+     `sudo dnf install nss-tools` on Fedora). Firefox — same as macOS, trust
+     manually.
 2. **Browse…** to your game's math folder (containing `index.json` plus the
    `lookuptable_*.csv` and `books_*.jsonl.zst` files).
 3. Enter the **Front URL** of your game's frontend (e.g.

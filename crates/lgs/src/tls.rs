@@ -130,8 +130,10 @@ fn generate_ca_and_leaf() -> Result<(String, String, String, String)> {
 }
 
 // ============================================================
-// Windows trust store integration (no UAC required: -user store)
+// Per-OS trust store integration — user-level, no sudo/UAC.
 // ============================================================
+
+// ---------- Windows (user "Root" via certutil) ----------
 
 #[cfg(windows)]
 pub fn is_ca_installed_user_store() -> bool {
@@ -146,11 +148,6 @@ pub fn is_ca_installed_user_store() -> bool {
         }
         Err(_) => false,
     }
-}
-
-#[cfg(not(windows))]
-pub fn is_ca_installed_user_store() -> bool {
-    false
 }
 
 #[cfg(windows)]
@@ -177,11 +174,6 @@ pub fn install_ca_user_store(ca_pem_path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(windows))]
-pub fn install_ca_user_store(_ca_pem_path: &Path) -> Result<()> {
-    Err(anyhow!("CA install only implemented for Windows"))
-}
-
 #[cfg(windows)]
 pub fn uninstall_ca_user_store() -> Result<()> {
     use std::process::Command;
@@ -199,7 +191,183 @@ pub fn uninstall_ca_user_store() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+// ---------- macOS (login keychain via /usr/bin/security) ----------
+// Covers Safari, Chrome, Edge. Firefox has its own NSS store.
+
+#[cfg(target_os = "macos")]
+fn home_login_keychain() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("no home dir"))?;
+    Ok(home
+        .join("Library")
+        .join("Keychains")
+        .join("login.keychain-db"))
+}
+
+#[cfg(target_os = "macos")]
+pub fn is_ca_installed_user_store() -> bool {
+    use std::process::Command;
+    let Ok(kc) = home_login_keychain() else {
+        return false;
+    };
+    Command::new("security")
+        .args(["find-certificate", "-c", ROOT_CA_NAME])
+        .arg(&kc)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+pub fn install_ca_user_store(ca_pem_path: &Path) -> Result<()> {
+    use std::process::Command;
+    let kc = home_login_keychain()?;
+    // `security add-trusted-cert -r trustRoot -k <login.keychain-db> cert.pem`
+    // Prompts the user for their keychain password (GUI). No sudo needed.
+    let out = Command::new("security")
+        .args(["add-trusted-cert", "-r", "trustRoot", "-k"])
+        .arg(&kc)
+        .arg(ca_pem_path)
+        .output()
+        .context("failed to spawn /usr/bin/security")?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "security add-trusted-cert failed: {}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 pub fn uninstall_ca_user_store() -> Result<()> {
-    Err(anyhow!("CA uninstall only implemented for Windows"))
+    use std::process::Command;
+    let kc = home_login_keychain()?;
+    let out = Command::new("security")
+        .args(["delete-certificate", "-c", ROOT_CA_NAME])
+        .arg(&kc)
+        .output()
+        .context("failed to spawn /usr/bin/security")?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "security delete-certificate failed: {}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+// ---------- Linux (user NSS database via certutil) ----------
+// Covers Chromium-family browsers (Chrome, Edge, Brave, Vivaldi).
+// Firefox uses a separate NSS store per profile — user must trust manually.
+// Requires `libnss3-tools` (Debian) / `nss-tools` (Fedora) installed.
+
+#[cfg(target_os = "linux")]
+fn nssdb_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join(".pki")
+        .join("nssdb")
+}
+
+#[cfg(target_os = "linux")]
+fn nssdb_arg() -> String {
+    format!("sql:{}", nssdb_dir().display())
+}
+
+#[cfg(target_os = "linux")]
+pub fn is_ca_installed_user_store() -> bool {
+    use std::process::Command;
+    if !nssdb_dir().exists() {
+        return false;
+    }
+    Command::new("certutil")
+        .args(["-L", "-d", &nssdb_arg(), "-n", ROOT_CA_NAME])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+pub fn install_ca_user_store(ca_pem_path: &Path) -> Result<()> {
+    use std::process::Command;
+    let db = nssdb_dir();
+    if !db.exists() {
+        std::fs::create_dir_all(&db).context("create NSS db dir")?;
+        // Init the NSS DB with an empty password.
+        let init = Command::new("certutil")
+            .args(["-N", "-d", &nssdb_arg(), "--empty-password"])
+            .output()
+            .context(
+                "failed to spawn certutil — install `libnss3-tools` (Debian/Ubuntu) \
+                 or `nss-tools` (Fedora/RHEL)",
+            )?;
+        if !init.status.success() {
+            return Err(anyhow!(
+                "certutil -N (init NSS db) failed: {}",
+                String::from_utf8_lossy(&init.stderr)
+            ));
+        }
+    }
+    let out = Command::new("certutil")
+        .args([
+            "-A",
+            "-d",
+            &nssdb_arg(),
+            "-t",
+            "C,,",
+            "-n",
+            ROOT_CA_NAME,
+            "-i",
+        ])
+        .arg(ca_pem_path)
+        .output()
+        .context(
+            "failed to spawn certutil — install `libnss3-tools` (Debian/Ubuntu) \
+             or `nss-tools` (Fedora/RHEL)",
+        )?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "certutil -A failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn uninstall_ca_user_store() -> Result<()> {
+    use std::process::Command;
+    if !nssdb_dir().exists() {
+        return Ok(());
+    }
+    let out = Command::new("certutil")
+        .args(["-D", "-d", &nssdb_arg(), "-n", ROOT_CA_NAME])
+        .output()
+        .context("failed to spawn certutil")?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "certutil -D failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+// ---------- Fallback for unsupported OS ----------
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+pub fn is_ca_installed_user_store() -> bool {
+    false
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+pub fn install_ca_user_store(_ca_pem_path: &Path) -> Result<()> {
+    Err(anyhow!("CA install not implemented for this platform"))
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+pub fn uninstall_ca_user_store() -> Result<()> {
+    Err(anyhow!("CA uninstall not implemented for this platform"))
 }

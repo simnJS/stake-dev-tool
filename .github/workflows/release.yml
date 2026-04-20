@@ -14,6 +14,10 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # sccache config: GitHub-hosted cache for rustc artefacts.
+  SCCACHE_GHA_ENABLED: 'true'
+  RUSTC_WRAPPER: 'sccache'
+  CARGO_INCREMENTAL: '0'
 
 jobs:
   build:
@@ -24,9 +28,11 @@ jobs:
           - platform: 'windows-latest'
             rust-targets: 'x86_64-pc-windows-msvc'
             tauri-args: ''
+          # Only Apple Silicon (M-series). x86_64 Intel Macs are a rounding-error
+          # install base and doubling the macOS build time for them isn't worth it.
           - platform: 'macos-latest'
-            rust-targets: 'aarch64-apple-darwin x86_64-apple-darwin'
-            tauri-args: '--target universal-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin'
+            tauri-args: '--target aarch64-apple-darwin'
           - platform: 'ubuntu-latest'
             rust-targets: 'x86_64-unknown-linux-gnu'
             tauri-args: ''
@@ -64,6 +70,9 @@ jobs:
             sleep 10
           done
           rustc --version
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
 
       - uses: Swatinem/rust-cache@v2
         with:
