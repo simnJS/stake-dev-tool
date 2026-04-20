@@ -29,6 +29,13 @@ pub struct ServerHandle {
     pub join: tokio::task::JoinHandle<std::io::Result<()>>,
 }
 
+/// UI bundle embedded at compile time for release builds. In debug builds the
+/// UI is served from disk (see `ui_dir` fallback below) so `vite build` +
+/// `cargo run` picks up fresh UI without rebuilding the Rust binary.
+#[cfg(not(debug_assertions))]
+static EMBEDDED_UI: include_dir::Dir<'_> =
+    include_dir::include_dir!("$CARGO_MANIFEST_DIR/../../ui/build");
+
 pub fn build_router(state: Arc<AppState>, ui_dir: Option<std::path::PathBuf>) -> axum::Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::mirror_request())
@@ -46,6 +53,14 @@ pub fn build_router(state: Arc<AppState>, ui_dir: Option<std::path::PathBuf>) ->
         .merge(devtool::router(state.clone()))
         .merge(replay::router(state));
 
+    // In release builds, always serve the embedded UI (no filesystem dep).
+    // In debug builds, fall back to the on-disk ui/build/ for hot iteration.
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = ui_dir; // unused in release
+        router = router.fallback(embedded_ui_handler);
+    }
+    #[cfg(debug_assertions)]
     if let Some(dir) = ui_dir {
         use tower_http::services::{ServeDir, ServeFile};
         let fallback = ServeFile::new(dir.join("index.html"));
@@ -53,6 +68,31 @@ pub fn build_router(state: Arc<AppState>, ui_dir: Option<std::path::PathBuf>) ->
     }
 
     router.layer(cors).layer(TraceLayer::new_for_http())
+}
+
+#[cfg(not(debug_assertions))]
+async fn embedded_ui_handler(
+    req: axum::http::Request<axum::body::Body>,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+
+    let raw_path = req.uri().path();
+    let trimmed = raw_path.trim_start_matches('/');
+    // Try direct match, directory index, then SPA fallback (index.html).
+    let candidates: [&str; 3] = [trimmed, &format!("{trimmed}/index.html"), "index.html"];
+    // Re-alloc to satisfy lifetime — String → &str.
+    let owned: Vec<String> = candidates.iter().map(|s| s.to_string()).collect();
+    for name in owned {
+        if let Some(file) = EMBEDDED_UI.get_file(&name) {
+            let mime = mime_guess::from_path(name)
+                .first_or_octet_stream()
+                .to_string();
+            return ([(header::CONTENT_TYPE, mime)], Body::from(file.contents())).into_response();
+        }
+    }
+    (StatusCode::NOT_FOUND, "not found").into_response()
 }
 
 static CRYPTO_INIT: Once = Once::new();

@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-04-20
+
+### Fixed
+
+- Test view (`/test/...`) was returning 404 in installed builds because the
+  LGS only served the UI from disk and the bundle didn't ship `ui/build/`
+  alongside the exe. Release builds now **embed the UI inside the binary**
+  via `include_dir!`. Dev builds keep the disk-based serving for hot reload.
+
 ## [0.2.0] — 2026-04-20
 
 ### Added
