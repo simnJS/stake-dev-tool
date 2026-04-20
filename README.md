@@ -212,6 +212,42 @@ LGS_MATH_DIR=./math \
 cargo run -p lgs --release
 ```
 
+## Auto-updater
+
+Once installed, the app checks GitHub Releases for a newer version on startup
+and shows a banner with release notes + "Download & install" button. Updates
+are downloaded, verified with a Minisign signature, and installed silently
+(passive NSIS mode on Windows, replace-in-place on macOS/Linux).
+
+The updater only works **from** a build that already has the plugin — so the
+first upgrade that uses it is the one **to** the release that introduced it.
+Earlier versions have to be reinstalled manually.
+
+### Release signing (maintainer setup)
+
+Releases are signed with a Tauri [Minisign](https://jedisct1.github.io/minisign/)
+keypair. The public key is embedded in the app at build time; the private key
+lives in GitHub Secrets.
+
+To produce a new signing keypair (one-time, already done for this repo):
+
+```bash
+pnpm exec tauri signer generate -w ~/.tauri/stake-dev-tool.key
+```
+
+Then add the following secrets to the GitHub repo (Settings → Secrets →
+Actions):
+
+- `TAURI_SIGNING_PRIVATE_KEY` — contents of the `.key` file (multiline, paste
+  as-is).
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password entered during
+  `signer generate` (empty string if none was set).
+
+Tag a release (`git tag v0.x.y && git push origin v0.x.y`) and the workflow
+signs artefacts, uploads them + a `latest.json` manifest to the release.
+Rotating keys requires re-shipping the app with the new public key, so treat
+them carefully.
+
 ## Contributing
 
 Pull requests, issues, and discussions are welcome. See

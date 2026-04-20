@@ -14,6 +14,27 @@ pub struct Session {
     pub language: String,
     pub active_round: Option<Round>,
     pub created_at: u64,
+    /// Set after each `/play` so the test view can display "last event: #N".
+    pub last_event_id: Option<u32>,
+    pub last_payout_multiplier: Option<u32>,
+    /// Ring-buffer-ish event history (most recent first, capped).
+    pub event_history: Vec<EventEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EventEntry {
+    #[serde(rename = "eventId")]
+    pub event_id: u32,
+    pub mode: String,
+    #[serde(rename = "betAmount")]
+    pub bet_amount: u64,
+    pub payout: u64,
+    #[serde(rename = "payoutMultiplier")]
+    pub payout_multiplier: u32,
+    #[serde(rename = "forced")]
+    pub forced: bool,
+    /// Unix ms timestamp.
+    pub at: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

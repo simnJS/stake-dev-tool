@@ -1,8 +1,10 @@
 use crate::config;
-use crate::types::{Round, Session};
+use crate::types::{EventEntry, Round, Session};
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const HISTORY_CAP: usize = 100;
 
 pub struct SessionInit {
     pub game: String,
@@ -52,10 +54,36 @@ impl SessionStore {
                 .unwrap_or_else(|| config::LANGUAGE.to_string()),
             active_round: None,
             created_at: now,
+            last_event_id: None,
+            last_payout_multiplier: None,
+            event_history: Vec::new(),
         };
         self.sessions
             .insert(session_id.to_string(), session.clone());
         session
+    }
+
+    pub fn set_last_event(
+        &self,
+        session_id: &str,
+        event_id: u32,
+        payout_multiplier: u32,
+    ) -> Option<Session> {
+        let mut entry = self.sessions.get_mut(session_id)?;
+        entry.last_event_id = Some(event_id);
+        entry.last_payout_multiplier = Some(payout_multiplier);
+        Some(entry.clone())
+    }
+
+    /// Push an event entry into the session's history (most-recent-first).
+    /// Capped at `HISTORY_CAP` — older entries are dropped.
+    pub fn push_event(&self, session_id: &str, entry: EventEntry) -> Option<Session> {
+        let mut s = self.sessions.get_mut(session_id)?;
+        s.event_history.insert(0, entry);
+        if s.event_history.len() > HISTORY_CAP {
+            s.event_history.truncate(HISTORY_CAP);
+        }
+        Some(s.clone())
     }
 
     /// Fetch existing session, or create with defaults. Used by authenticate

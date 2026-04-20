@@ -1,7 +1,7 @@
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::session::SessionInit;
 use crate::settings;
-use crate::state::AppState;
+use crate::state::{AppState, ForcedEvent};
 use axum::extract::{Path, State};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -10,21 +10,29 @@ use std::sync::Arc;
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/api/admin/sessions/prepare", post(prepare_session))
-        .route("/api/admin/status", get(status))
-        .route("/api/admin/settings", get(get_settings_handler))
+        .route("/api/devtool/sessions/prepare", post(prepare_session))
+        .route("/api/devtool/status", get(status))
+        .route("/api/devtool/settings", get(get_settings_handler))
         .route(
-            "/api/admin/settings/toggle",
+            "/api/devtool/settings/toggle",
             post(toggle_resolution_handler),
         )
         .route(
-            "/api/admin/settings/custom",
+            "/api/devtool/settings/custom",
             post(add_custom_resolution_handler),
         )
         .route(
-            "/api/admin/settings/custom/:id",
+            "/api/devtool/settings/custom/:id",
             delete(delete_custom_resolution_handler),
         )
+        .route(
+            "/api/devtool/force-event",
+            get(get_forced_event)
+                .post(set_forced_event)
+                .delete(clear_forced_event),
+        )
+        .route("/api/devtool/sessions/:sid/last-event", get(get_last_event))
+        .route("/api/devtool/sessions/:sid/events", get(get_events_history))
         .with_state(state)
 }
 
@@ -127,4 +135,68 @@ async fn delete_custom_resolution_handler(
 ) -> AppResult<Json<settings::Settings>> {
     let s = settings::delete_custom(&id).await?;
     Ok(Json(s))
+}
+
+// ========== Force event / replay debug helpers ==========
+
+#[derive(Serialize)]
+pub struct ForcedEventResponse {
+    pub forced: Option<ForcedEvent>,
+}
+
+async fn get_forced_event(State(state): State<Arc<AppState>>) -> Json<ForcedEventResponse> {
+    Json(ForcedEventResponse {
+        forced: state.forced_event.lock().clone(),
+    })
+}
+
+async fn set_forced_event(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ForcedEvent>,
+) -> Json<ForcedEventResponse> {
+    *state.forced_event.lock() = Some(body);
+    Json(ForcedEventResponse {
+        forced: state.forced_event.lock().clone(),
+    })
+}
+
+async fn clear_forced_event(State(state): State<Arc<AppState>>) -> Json<ForcedEventResponse> {
+    *state.forced_event.lock() = None;
+    Json(ForcedEventResponse { forced: None })
+}
+
+#[derive(Serialize)]
+pub struct LastEventResponse {
+    #[serde(rename = "eventId")]
+    pub event_id: Option<u32>,
+    #[serde(rename = "payoutMultiplier")]
+    pub payout_multiplier: Option<u32>,
+}
+
+async fn get_last_event(
+    State(state): State<Arc<AppState>>,
+    Path(sid): Path<String>,
+) -> AppResult<Json<LastEventResponse>> {
+    let s = state.sessions.get(&sid).ok_or(AppError::SessionNotFound)?;
+    Ok(Json(LastEventResponse {
+        event_id: s.last_event_id,
+        payout_multiplier: s.last_payout_multiplier,
+    }))
+}
+
+#[derive(Serialize)]
+pub struct EventsHistoryResponse {
+    pub count: usize,
+    pub events: Vec<crate::types::EventEntry>,
+}
+
+async fn get_events_history(
+    State(state): State<Arc<AppState>>,
+    Path(sid): Path<String>,
+) -> AppResult<Json<EventsHistoryResponse>> {
+    let s = state.sessions.get(&sid).ok_or(AppError::SessionNotFound)?;
+    Ok(Json(EventsHistoryResponse {
+        count: s.event_history.len(),
+        events: s.event_history,
+    }))
 }

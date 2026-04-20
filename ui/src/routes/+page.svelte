@@ -4,6 +4,8 @@
   import {
     browser,
     ca,
+    checkForUpdates,
+    downloadAndInstallUpdate,
     lgs,
     pickFolder,
     profiles as profilesApi,
@@ -12,7 +14,8 @@
     type InspectedGame,
     type LgsStatus,
     type Profile,
-    type ResolutionPreset
+    type ResolutionPreset,
+    type UpdateInfo
   } from '$lib/api';
 
   const DEFAULT_PORT = 3001;
@@ -31,6 +34,11 @@
   let resolutions = $state<ResolutionPreset[]>([]);
   let showResolutions = $state(false);
 
+  let updateInfo = $state<UpdateInfo | null>(null);
+  let checkingUpdate = $state(false);
+  let installingUpdate = $state(false);
+  let updateProgress = $state<{ downloaded: number; total?: number } | null>(null);
+
   let error = $state<string | null>(null);
   let info = $state<string | null>(null);
   let busy = $state(false);
@@ -45,7 +53,48 @@
     } catch (e) {
       console.error(e);
     }
+    // Silent update check on startup — don't block the UI.
+    checkUpdate(true).catch(() => {});
   });
+
+  async function checkUpdate(silent = false) {
+    checkingUpdate = true;
+    if (!silent) {
+      error = null;
+      info = null;
+    }
+    try {
+      updateInfo = await checkForUpdates();
+      if (!silent) {
+        info = updateInfo.available
+          ? `Update available: v${updateInfo.version}`
+          : `You're up to date (v${updateInfo.currentVersion}).`;
+      }
+    } catch (e) {
+      if (!silent) error = `Update check failed: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      checkingUpdate = false;
+    }
+  }
+
+  async function installUpdate() {
+    if (!updateInfo?.available) return;
+    installingUpdate = true;
+    updateProgress = { downloaded: 0, total: undefined };
+    error = null;
+    info = null;
+    try {
+      await downloadAndInstallUpdate((d, t) => {
+        updateProgress = { downloaded: d, total: t };
+      });
+      // If we reach here, relaunch() hasn't killed us yet — keep UI idle.
+      info = 'Update installed. App will restart…';
+    } catch (e) {
+      error = `Update failed: ${e instanceof Error ? e.message : String(e)}`;
+      installingUpdate = false;
+      updateProgress = null;
+    }
+  }
 
   async function toggleResolution(id: string, enabled: boolean) {
     await withBusy(async () => {
@@ -236,21 +285,82 @@
         <h1 class="text-2xl font-semibold tracking-tight">Stake Dev Tool</h1>
         <p class="mt-1 text-sm text-zinc-400">Launch your slot against a local LGS</p>
       </div>
-      <button
-        onclick={toggleLgs}
-        disabled={busy || (!status.running && !game)}
-        class="flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs transition hover:bg-zinc-800/60 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        <span
-          class="h-2 w-2 rounded-full {status.running
-            ? 'bg-emerald-400 shadow-[0_0_8px_oklch(0.78_0.18_145)]'
-            : 'bg-zinc-600'}"
-        ></span>
-        <span class="text-zinc-300">
-          {status.running ? `LGS · ${status.bound_addr}` : 'LGS stopped'}
-        </span>
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          onclick={() => checkUpdate(false)}
+          disabled={checkingUpdate || installingUpdate}
+          title="Check for updates"
+          class="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-400 transition hover:bg-zinc-800/60 disabled:opacity-50"
+        >
+          <svg class="h-3 w-3 {checkingUpdate ? 'animate-spin' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-3m2 8a8 8 0 01-14 3" />
+          </svg>
+          {checkingUpdate ? 'Checking…' : updateInfo?.available ? 'Update' : 'Check updates'}
+        </button>
+        <button
+          onclick={toggleLgs}
+          disabled={busy || (!status.running && !game)}
+          class="flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs transition hover:bg-zinc-800/60 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span
+            class="h-2 w-2 rounded-full {status.running
+              ? 'bg-emerald-400 shadow-[0_0_8px_oklch(0.78_0.18_145)]'
+              : 'bg-zinc-600'}"
+          ></span>
+          <span class="text-zinc-300">
+            {status.running ? `LGS · ${status.bound_addr}` : 'LGS stopped'}
+          </span>
+        </button>
+      </div>
     </header>
+
+    {#if updateInfo?.available}
+      <div class="mb-6 rounded-2xl border border-sky-900/60 bg-sky-950/20 p-4 backdrop-blur">
+        <div class="flex items-start gap-3">
+          <svg class="mt-0.5 h-5 w-5 flex-shrink-0 text-sky-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4m-9 8h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v13a2 2 0 002 2z" />
+          </svg>
+          <div class="flex-1">
+            <div class="flex items-center gap-2 text-sm font-medium text-sky-200">
+              Update available
+              <span class="rounded bg-sky-500/20 px-2 py-0.5 font-mono text-[10px] text-sky-300">
+                v{updateInfo.currentVersion} → v{updateInfo.version}
+              </span>
+            </div>
+            {#if updateInfo.notes}
+              <pre class="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap rounded bg-sky-950/40 p-2 text-[11px] text-sky-200/80">{updateInfo.notes}</pre>
+            {/if}
+            {#if installingUpdate && updateProgress}
+              {@const pct = updateProgress.total
+                ? Math.min(100, Math.round((updateProgress.downloaded / updateProgress.total) * 100))
+                : null}
+              <div class="mt-3">
+                <div class="h-1.5 w-full overflow-hidden rounded bg-sky-950/60">
+                  <div
+                    class="h-full bg-sky-400 transition-all"
+                    style="width: {pct ?? 30}%"
+                  ></div>
+                </div>
+                <div class="mt-1 font-mono text-[10px] text-sky-300">
+                  Downloading… {(updateProgress.downloaded / 1_048_576).toFixed(1)} MB
+                  {#if updateProgress.total}
+                    / {(updateProgress.total / 1_048_576).toFixed(1)} MB ({pct}%)
+                  {/if}
+                </div>
+              </div>
+            {:else}
+              <button
+                onclick={installUpdate}
+                disabled={busy || installingUpdate}
+                class="mt-3 rounded-md bg-sky-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-sky-400 disabled:opacity-50"
+              >
+                Download &amp; install
+              </button>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
 
     {#if !caState.installed}
       <div class="mb-6 rounded-2xl border border-amber-900/60 bg-amber-950/20 p-4 backdrop-blur">

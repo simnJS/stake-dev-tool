@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Stake Dev Tool",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "bet.playandchill.stakedevtool",
   "build": {
     "beforeDevCommand": "pnpm --filter ui dev",
@@ -29,7 +29,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis", "app", "appimage"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,5 +38,16 @@
       "icons/icon.png",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/simnJS/stake-dev-tool/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxNDU4RDc1MDM0NTE0RUIKUldUckZFVURkWTFGZ2Q3MWRJbVR0Zm1lT1laRlZjL2NROVBaV2Y3LzdIais4SURqdkJoRkdHVmgK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

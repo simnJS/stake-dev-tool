@@ -2,7 +2,7 @@ use crate::config;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use crate::types::{
-    AuthenticateResponse, Balance, BalanceResponse, BetEventResponse, EndRoundResponse,
+    AuthenticateResponse, Balance, BalanceResponse, BetEventResponse, EndRoundResponse, EventEntry,
     PlayResponse, Round,
 };
 use axum::extract::{Path, State};
@@ -10,6 +10,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use serde::Deserialize;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -111,11 +112,50 @@ async fn play(
         .deduct_bet(&session_id, total_cost)
         .ok_or(AppError::InsufficientBalance)?;
 
-    let result = state.engine.play_spin(&game, &mode, total_cost).await?;
+    // If a forced event is set for this mode, bypass the RNG and return it.
+    let forced = state
+        .forced_event
+        .lock()
+        .as_ref()
+        .filter(|f| f.mode == mode)
+        .cloned();
+
+    let result = if let Some(f) = forced {
+        state
+            .engine
+            .play_forced(&game, &mode, total_cost, f.event_id)
+            .await?
+    } else {
+        state.engine.play_spin(&game, &mode, total_cost).await?
+    };
 
     if result.payout > 0 {
         state.sessions.add_winnings(&session_id, result.payout);
     }
+    state
+        .sessions
+        .set_last_event(&session_id, result.event_id, result.payout_multiplier);
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let forced_flag = state
+        .forced_event
+        .lock()
+        .as_ref()
+        .is_some_and(|f| f.mode == mode);
+    state.sessions.push_event(
+        &session_id,
+        EventEntry {
+            event_id: result.event_id,
+            mode: mode.clone(),
+            bet_amount: total_cost,
+            payout: result.payout,
+            payout_multiplier: result.payout_multiplier,
+            forced: forced_flag,
+            at: now_ms,
+        },
+    );
 
     let round = Round {
         bet_id: state.sessions.next_bet_id(),
@@ -124,7 +164,7 @@ async fn play(
         payout_multiplier: result.payout_multiplier as f64 / 100.0,
         active: false,
         mode,
-        event: None,
+        event: Some(result.event_id.to_string()),
         state: result.state,
     };
 

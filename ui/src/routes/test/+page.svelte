@@ -7,7 +7,13 @@
     CURRENCIES,
     API_MULTIPLIER,
     settingsHttp,
-    type ResolutionPreset
+    forcedEventHttp,
+    lastEventHttp,
+    historyHttp,
+    replayUrl,
+    type ResolutionPreset,
+    type LastEvent,
+    type EventEntry
   } from '$lib/api';
 
   // Stake social-mode currencies (XGC = Gold Coin, XSC = Stake Cash) only
@@ -21,6 +27,9 @@
     sessionId: string;
     src: string | null;
     muted: boolean;
+    lastEvent: LastEvent | null;
+    history: EventEntry[];
+    showHistory: boolean;
   };
 
   let gameUrl = $state('');
@@ -59,12 +68,111 @@
     frames = enabled.map((res) => {
       const existing = byId.get(res.id);
       if (existing) {
-        // Update dimensions if user resized a custom one
         existing.res = res;
         return existing;
       }
-      return { res, sessionId: crypto.randomUUID(), src: null, muted: true };
+      return {
+        res,
+        sessionId: crypto.randomUUID(),
+        src: null,
+        muted: true,
+        lastEvent: null,
+        history: [],
+        showHistory: false
+      };
     });
+  }
+
+  // ---- Force event + last event + replay ----
+
+  let forcedMode = $state<string>('base');
+  let forcedEventId = $state<number | null>(null);
+  let forcedEventBanner = $state<{ mode: string; eventId: number } | null>(null);
+
+  let replayMode = $state<string>('base');
+  let replayEventId = $state<number | null>(null);
+
+  async function applyForcedEvent() {
+    if (forcedEventId === null || forcedEventId <= 0) {
+      error = 'Enter a valid event id.';
+      return;
+    }
+    busy = true;
+    try {
+      const r = await forcedEventHttp.set(forcedMode, forcedEventId);
+      forcedEventBanner = r.forced;
+      info = `Forced: mode=${forcedMode}, eventId=${forcedEventId}. Every /play in this mode now returns this event.`;
+      setTimeout(() => (info = null), 3000);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function clearForcedEvent() {
+    busy = true;
+    try {
+      await forcedEventHttp.clear();
+      forcedEventBanner = null;
+      info = 'Forced event cleared — back to RNG.';
+      setTimeout(() => (info = null), 2500);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function launchReplay(frame: FrameState) {
+    if (replayEventId === null || replayEventId <= 0) {
+      error = 'Enter a valid event id to replay.';
+      return;
+    }
+    const url = replayUrl(gameUrl, gameSlug, lgsHostPort, {
+      mode: replayMode,
+      eventId: replayEventId,
+      currency,
+      amount: Math.round(balance * API_MULTIPLIER),
+      lang: language,
+      device,
+      social
+    });
+    frame.src = url;
+    info = `Replay launched on ${frame.res.label}: ${replayMode} #${replayEventId}.`;
+    setTimeout(() => (info = null), 2500);
+  }
+
+  // Poll last event + full history per frame every second.
+  $effect(() => {
+    const interval = setInterval(async () => {
+      for (const f of frames) {
+        if (!f.src) continue;
+        try {
+          const [le, h] = await Promise.all([
+            lastEventHttp.get(f.sessionId),
+            historyHttp.get(f.sessionId)
+          ]);
+          f.lastEvent = le;
+          f.history = h.events;
+        } catch {
+          // session might not exist yet if frame just reloaded; ignore.
+        }
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  });
+
+  function formatRelative(ms: number): string {
+    const diff = Date.now() - ms;
+    if (diff < 1000) return 'just now';
+    if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+    return `${Math.floor(diff / 3_600_000)}h ago`;
+  }
+
+  function formatAmount(microUnits: number): string {
+    return (microUnits / API_MULTIPLIER).toFixed(2);
   }
 
   let busy = $state(false);
@@ -88,6 +196,8 @@
       const s = await settingsHttp.get();
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions();
+      const f = await forcedEventHttp.get();
+      forcedEventBanner = f.forced;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       return;
@@ -167,7 +277,7 @@
   }
 
   async function prepareSession(sessionId: string) {
-    const res = await fetch(`${lgsBase}/api/admin/sessions/prepare`, {
+    const res = await fetch(`${lgsBase}/api/devtool/sessions/prepare`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -228,12 +338,33 @@
     window.open(frame.src, '_blank', 'noopener,noreferrer');
   }
 
+  /** Cross-origin iframes don't let the parent pause their AudioContext. The
+   *  only way to actually silence an iframe that's already playing is to
+   *  recycle it: clear src so the element is destroyed, then set it back after
+   *  a tick so Svelte creates a fresh iframe. The sessionId is preserved so
+   *  balance/history survive. */
+  function remountIframe(frame: FrameState) {
+    if (!frame.src) return;
+    const src = frame.src;
+    frame.src = null;
+    setTimeout(() => {
+      frame.src = src;
+    }, 30);
+  }
+
   function toggleMute(frame: FrameState) {
+    const wasMuted = frame.muted;
     frame.muted = !frame.muted;
+    // When re-muting a frame whose audio is already running, we must remount.
+    if (!wasMuted && frame.muted) remountIframe(frame);
   }
 
   function muteAll() {
-    frames.forEach((f) => (f.muted = true));
+    for (const f of frames) {
+      const wasMuted = f.muted;
+      f.muted = true;
+      if (!wasMuted) remountIframe(f);
+    }
   }
   function unmuteAll() {
     frames.forEach((f) => (f.muted = false));
@@ -368,6 +499,88 @@
       </svg>
     </button>
 
+    <!-- Force event -->
+    <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
+      <div class="mb-1 flex items-center justify-between">
+        <span class="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          Force next event
+        </span>
+        {#if forcedEventBanner}
+          <button
+            onclick={clearForcedEvent}
+            disabled={busy}
+            class="text-[10px] text-amber-400 hover:text-amber-300"
+          >
+            Clear
+          </button>
+        {/if}
+      </div>
+      <div class="flex gap-1.5">
+        <select
+          bind:value={forcedMode}
+          class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+        >
+          {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
+            <option value={m}>{m}</option>
+          {/each}
+        </select>
+        <input
+          type="number"
+          bind:value={forcedEventId}
+          min="1"
+          placeholder="eventId"
+          class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+        />
+        <button
+          onclick={applyForcedEvent}
+          disabled={busy}
+          class="rounded bg-amber-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-amber-400 disabled:opacity-40"
+        >
+          Force
+        </button>
+      </div>
+      {#if forcedEventBanner}
+        <div class="mt-1.5 rounded bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
+          Active: <span class="font-mono">{forcedEventBanner.mode} #{forcedEventBanner.eventId}</span>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Replay -->
+    <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
+      <div class="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+        Replay event
+      </div>
+      <div class="flex gap-1.5">
+        <select
+          bind:value={replayMode}
+          class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+        >
+          {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
+            <option value={m}>{m}</option>
+          {/each}
+        </select>
+        <input
+          type="number"
+          bind:value={replayEventId}
+          min="1"
+          placeholder="eventId"
+          class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+        />
+        <button
+          onclick={() => frames[0] && launchReplay(frames[0])}
+          disabled={busy || frames.length === 0}
+          title="Load replay in the first frame"
+          class="rounded bg-sky-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-sky-400 disabled:opacity-40"
+        >
+          Load
+        </button>
+      </div>
+      <div class="mt-1 text-[10px] text-zinc-600">
+        Loads into the top-left frame. No session, no RNG — just the event outcome.
+      </div>
+    </div>
+
     {#if showManage}
       <div class="mb-2 max-h-80 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
         <div class="mb-2 space-y-1">
@@ -473,9 +686,9 @@
       {#each frames as frame (frame.res.id)}
         <div class="flex flex-col">
           <div class="mb-1.5 flex items-center justify-between gap-3">
-            <div class="text-xs">
+            <div class="flex items-center gap-2 text-xs">
               <span class="font-semibold text-zinc-100">{frame.res.label}</span>
-              <span class="ml-1.5 font-mono text-zinc-500">
+              <span class="font-mono text-zinc-500">
                 {frame.res.width}×{frame.res.height}
               </span>
             </div>
@@ -521,6 +734,44 @@
               </button>
             </div>
           </div>
+          <!-- Big last-event strip (above the iframe, full-width of frame) -->
+          <div
+            class="mb-1 flex items-center justify-between gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1.5"
+            style="width: {frame.res.width}px;"
+          >
+            {#if frame.lastEvent?.eventId != null}
+              {@const lm = (frame.lastEvent.payoutMultiplier ?? 0) / 100}
+              {@const hit = lm > 0}
+              <div class="flex items-baseline gap-2.5 text-sm">
+                <span class="text-[10px] uppercase tracking-wider text-zinc-500">Last</span>
+                <span class="font-mono font-semibold text-sky-300">
+                  #{frame.lastEvent.eventId}
+                </span>
+                <span class="font-mono text-base font-bold {hit ? 'text-emerald-400' : 'text-zinc-500'}">
+                  ×{lm.toFixed(2)}
+                </span>
+                {#if frame.history[0]}
+                  <span class="font-mono text-xs text-zinc-400">
+                    bet {formatAmount(frame.history[0].betAmount)} · win {formatAmount(frame.history[0].payout)}
+                  </span>
+                {/if}
+              </div>
+            {:else}
+              <span class="text-xs text-zinc-600">Waiting for first spin…</span>
+            {/if}
+            <button
+              onclick={() => (frame.showHistory = !frame.showHistory)}
+              disabled={frame.history.length === 0}
+              title="Toggle event history"
+              class="flex items-center gap-1 rounded border border-zinc-800 bg-zinc-950/40 px-2 py-0.5 text-[10px] font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+            >
+              <svg class="h-3 w-3 transition {frame.showHistory ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+              History ({frame.history.length})
+            </button>
+          </div>
+
           <div
             class="relative overflow-hidden rounded-lg border border-zinc-800/60 bg-black shadow-xl"
             style="width: {frame.res.width}px; height: {frame.res.height}px;"
@@ -558,6 +809,53 @@
               </button>
             {/if}
           </div>
+
+          {#if frame.showHistory && frame.history.length > 0}
+            <div
+              class="mt-1 overflow-hidden rounded-md border border-zinc-800/60 bg-zinc-950/40"
+              style="width: {frame.res.width}px;"
+            >
+              <div class="grid grid-cols-[auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span>#</span>
+                <span>Event</span>
+                <span>Mode</span>
+                <span>Bet</span>
+                <span>Mult</span>
+                <span>Win</span>
+              </div>
+              <div class="max-h-64 overflow-y-auto font-mono text-xs">
+                {#each frame.history as entry, i (entry.at + '-' + entry.eventId)}
+                  {@const hit = entry.payout > 0}
+                  <div
+                    class="grid grid-cols-[auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-900/40 px-3 py-1 transition hover:bg-zinc-800/30 {entry.forced
+                      ? 'bg-amber-500/5'
+                      : ''}"
+                  >
+                    <span class="text-zinc-600">{i + 1}</span>
+                    <span class="font-semibold text-sky-300">#{entry.eventId}</span>
+                    <span class="truncate text-zinc-400">
+                      {entry.mode}
+                      {#if entry.forced}
+                        <span class="ml-1 rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-semibold text-amber-300">
+                          FORCED
+                        </span>
+                      {/if}
+                    </span>
+                    <span class="text-zinc-400">{formatAmount(entry.betAmount)}</span>
+                    <span class="{hit ? 'text-emerald-400' : 'text-zinc-600'}">
+                      ×{(entry.payoutMultiplier / 100).toFixed(2)}
+                    </span>
+                    <span class="{hit ? 'text-emerald-400' : 'text-zinc-600'}">
+                      {formatAmount(entry.payout)}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+              <div class="border-t border-zinc-800 bg-zinc-900/40 px-3 py-1 text-[10px] text-zinc-500">
+                Last 100 spins, newest first. Resets when the frame is reloaded.
+              </div>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>

@@ -133,20 +133,96 @@ impl MathEngine {
         let assets = self.load_assets(game, &mode).await?;
 
         let pick = weighted_pick(&assets.sampler);
-        let state = read_event(&assets.books, pick.event_id)?;
+        self.build_result(
+            &mode,
+            &assets,
+            pick.event_id,
+            pick.payout_multiplier,
+            bet_amount,
+        )
+    }
 
+    /// Like `play_spin` but forces a specific event id (bypasses the RNG).
+    /// Used for replay / debug "force next event" flows.
+    pub async fn play_forced(
+        &self,
+        game: &str,
+        mode_name: &str,
+        bet_amount: u64,
+        event_id: u32,
+    ) -> AppResult<SpinResult> {
+        let mode = self.get_mode(game, mode_name).await?;
+        let assets = self.load_assets(game, &mode).await?;
+
+        // Find the weight entry for this event to get the authoritative payout
+        // multiplier. Weights table is small (~1k entries), a linear search is fine.
+        let entry = assets
+            .sampler
+            .entries
+            .iter()
+            .find(|e| e.event_id == event_id)
+            .ok_or_else(|| AppError::Parse(format!("event {event_id} not found in weights")))?;
+
+        self.build_result(
+            &mode,
+            &assets,
+            entry.event_id,
+            entry.payout_multiplier,
+            bet_amount,
+        )
+    }
+
+    fn build_result(
+        &self,
+        mode: &GameMode,
+        assets: &Arc<ModeAssets>,
+        event_id: u32,
+        payout_multiplier: u32,
+        bet_amount: u64,
+    ) -> AppResult<SpinResult> {
+        let state = read_event(&assets.books, event_id)?;
         let base_bet = bet_amount / mode.cost.max(1);
-        let payout = (base_bet.saturating_mul(pick.payout_multiplier as u64)) / 100;
-
+        let payout = (base_bet.saturating_mul(payout_multiplier as u64)) / 100;
         Ok(SpinResult {
-            payout_multiplier: pick.payout_multiplier,
+            event_id,
+            payout_multiplier,
             payout,
+            state,
+        })
+    }
+
+    /// Fetch the raw event state + payout multiplier for replay / bet-replay endpoint.
+    pub async fn replay_event(
+        &self,
+        game: &str,
+        mode_name: &str,
+        event_id: u32,
+    ) -> AppResult<ReplayResult> {
+        let mode = self.get_mode(game, mode_name).await?;
+        let assets = self.load_assets(game, &mode).await?;
+        let entry = assets
+            .sampler
+            .entries
+            .iter()
+            .find(|e| e.event_id == event_id)
+            .ok_or_else(|| AppError::Parse(format!("event {event_id} not found in weights")))?;
+        let state = read_event(&assets.books, entry.event_id)?;
+        Ok(ReplayResult {
+            payout_multiplier: entry.payout_multiplier,
+            cost_multiplier: mode.cost,
             state,
         })
     }
 }
 
+pub struct ReplayResult {
+    pub payout_multiplier: u32,
+    pub cost_multiplier: u64,
+    pub state: Arc<RawValue>,
+}
+
 pub struct SpinResult {
+    pub event_id: u32,
     pub payout_multiplier: u32,
     pub payout: u64,
     pub state: Arc<RawValue>,

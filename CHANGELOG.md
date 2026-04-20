@@ -5,6 +5,36 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-04-20
+
+### Added
+
+- **Auto-updater** — the app checks GitHub Releases on startup and offers a
+  one-click download + install. Signed with Minisign; the public key is
+  embedded in the binary, the private key sits in GitHub Secrets.
+- **Replay endpoint** — `GET /bet/replay/:game/:version/:mode/:event`, matches
+  the canonical Stake Engine contract. No session / no auth.
+- **Replay launcher** — sidebar panel to load a specific event into a frame
+  with the official replay URL params.
+- **Force event** — sidebar input to pin `/play` responses to a specific
+  eventId for a given mode. Great for debugging a specific outcome without
+  RNG luck.
+- **Event history** — every `/play` appends to a bounded (100-entry) per-session
+  history. The test view shows the last event prominently and a collapsible
+  full-history table per frame.
+- **Bigger last-event display** — prominent strip above each iframe with event
+  id, multiplier, bet, win. Forced spins are badged.
+- **New app icon** — custom S/DT logo across Windows / macOS / Linux bundles.
+
+### Changed
+
+- Admin endpoints moved from `/api/admin/*` → `/api/devtool/*` (they're not
+  actually admin — no auth, no privilege escalation; they're tooling).
+- Mute now recycles the iframe when silencing an already-playing frame,
+  because cross-origin iframes don't let the parent pause their AudioContext.
+- Release bundles trimmed to the updater-compatible formats only: NSIS (Windows),
+  `.app.tar.gz` (macOS Apple Silicon), AppImage (Linux).
+
 ## [0.1.0] — 2026-04-20
 
 First public release.

@@ -24,8 +24,7 @@ jobs:
           - platform: 'windows-latest'
             rust-targets: 'x86_64-pc-windows-msvc'
             tauri-args: ''
-          # Only Apple Silicon (M-series). x86_64 Intel Macs are a rounding-error
-          # install base and doubling the macOS build time for them isn't worth it.
+          # Only Apple Silicon (M-series).
           - platform: 'macos-latest'
             rust-targets: 'aarch64-apple-darwin'
             tauri-args: '--target aarch64-apple-darwin'
@@ -53,7 +52,6 @@ jobs:
       - name: Setup Rust (stable + targets)
         shell: bash
         run: |
-          # Retry rustup to mitigate transient network failures on runners.
           for attempt in 1 2 3; do
             rustup update stable --no-self-update && break
             echo "rustup update attempt $attempt failed, retrying in 10s..." >&2
@@ -82,16 +80,15 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile=false
-
-      # tauri::generate_context! macro evaluates frontendDist at compile time.
-      # Explicitly build the UI before tauri-action so ui/build exists regardless
-      # of whether tauri-action picks up beforeBuildCommand.
       - run: pnpm --filter ui build
 
-      - name: Build Tauri app
+      - name: Build + sign Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required for signed updater artefacts.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Stake Dev Tool ${{ github.ref_name }}'
@@ -100,3 +97,80 @@ jobs:
           prerelease: false
           projectPath: .
           args: --config crates/desktop/tauri.conf.json ${{ matrix.tauri-args }}
+
+  # Build the updater manifest (latest.json) once all platforms finished and
+  # attach it to the draft release so tauri-plugin-updater can find it.
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build latest.json manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Fetch release info to discover asset URLs + signatures.
+          release_json=$(gh api "/repos/$REPO/releases/tags/$TAG")
+          asset_url() {
+            echo "$release_json" | jq -r --arg name "$1" '.assets[] | select(.name==$name) | .browser_download_url'
+          }
+          asset_names=$(echo "$release_json" | jq -r '.assets[].name')
+
+          find_asset() {
+            local pattern="$1"
+            echo "$asset_names" | grep -E "$pattern" | head -n1 || true
+          }
+
+          # Windows NSIS (.exe) — updater artefact is the installer + .sig
+          win_exe=$(find_asset '.*x64-setup\.exe$')
+          win_sig=$(find_asset '.*x64-setup\.exe\.sig$')
+
+          # macOS Apple Silicon — updater artefact is the app.tar.gz + .sig
+          mac_tar=$(find_asset 'aarch64\.app\.tar\.gz$')
+          mac_sig=$(find_asset 'aarch64\.app\.tar\.gz\.sig$')
+
+          # Linux AppImage — updater artefact is the AppImage + .sig
+          linux_app=$(find_asset 'amd64\.AppImage$')
+          linux_sig=$(find_asset 'amd64\.AppImage\.sig$')
+
+          platforms_json="{}"
+          if [ -n "$win_exe" ] && [ -n "$win_sig" ]; then
+            sig=$(curl -sL "$(asset_url "$win_sig")")
+            platforms_json=$(echo "$platforms_json" | jq \
+              --arg sig "$sig" --arg url "$(asset_url "$win_exe")" \
+              '. + {"windows-x86_64": {"signature": $sig, "url": $url}}')
+          fi
+          if [ -n "$mac_tar" ] && [ -n "$mac_sig" ]; then
+            sig=$(curl -sL "$(asset_url "$mac_sig")")
+            platforms_json=$(echo "$platforms_json" | jq \
+              --arg sig "$sig" --arg url "$(asset_url "$mac_tar")" \
+              '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
+          fi
+          if [ -n "$linux_app" ] && [ -n "$linux_sig" ]; then
+            sig=$(curl -sL "$(asset_url "$linux_sig")")
+            platforms_json=$(echo "$platforms_json" | jq \
+              --arg sig "$sig" --arg url "$(asset_url "$linux_app")" \
+              '. + {"linux-x86_64": {"signature": $sig, "url": $url}}')
+          fi
+
+          notes=$(echo "$release_json" | jq -r '.body // ""')
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$notes" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$platforms_json" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' \
+            > latest.json
+
+          cat latest.json
+
+          # Upload latest.json as a release asset (update any existing one).
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"

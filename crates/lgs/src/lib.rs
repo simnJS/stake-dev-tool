@@ -1,7 +1,8 @@
-pub mod admin;
 pub mod config;
+pub mod devtool;
 pub mod error;
 pub mod math_engine;
+pub mod replay;
 pub mod routes;
 pub mod session;
 pub mod settings;
@@ -41,7 +42,9 @@ pub fn build_router(state: Arc<AppState>, ui_dir: Option<std::path::PathBuf>) ->
         .allow_private_network(true)
         .expose_headers([HeaderName::from_static("content-type")]);
 
-    let mut router = routes::router(state.clone()).merge(admin::router(state));
+    let mut router = routes::router(state.clone())
+        .merge(devtool::router(state.clone()))
+        .merge(replay::router(state));
 
     if let Some(dir) = ui_dir {
         use tower_http::services::{ServeDir, ServeFile};

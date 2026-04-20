@@ -70,6 +70,51 @@ export const browser = {
   openTest: (url: string) => invoke<OpenBrowserResult>('open_test_browser', { url })
 };
 
+// ===== Updater =====
+// Thin wrappers around @tauri-apps/plugin-updater so the main page can show
+// update status without pulling the plugin API everywhere.
+
+export type UpdateInfo = {
+  available: boolean;
+  currentVersion: string;
+  version?: string;
+  notes?: string;
+};
+
+export async function checkForUpdates(): Promise<UpdateInfo> {
+  const { check } = await import('@tauri-apps/plugin-updater');
+  const { getVersion } = await import('@tauri-apps/api/app');
+  const currentVersion = await getVersion();
+  const update = await check();
+  if (!update) return { available: false, currentVersion };
+  return {
+    available: true,
+    currentVersion,
+    version: update.version,
+    notes: update.body
+  };
+}
+
+export async function downloadAndInstallUpdate(
+  onProgress?: (downloaded: number, total?: number) => void
+): Promise<void> {
+  const { check } = await import('@tauri-apps/plugin-updater');
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  const update = await check();
+  if (!update) throw new Error('No update available');
+  let downloaded = 0;
+  let total: number | undefined;
+  await update.downloadAndInstall((event) => {
+    if (event.event === 'Started') {
+      total = event.data.contentLength ?? undefined;
+    } else if (event.event === 'Progress') {
+      downloaded += event.data.chunkLength;
+      onProgress?.(downloaded, total);
+    }
+  });
+  await relaunch();
+}
+
 export type Profile = {
   id: string;
   name: string;
@@ -121,15 +166,104 @@ export const settings = {
     invoke<Settings>('replace_resolutions', { resolutions })
 };
 
+// ---- Force event / last event / replay (HTTP, used by test view) ----
+
+export type ForcedEvent = { mode: string; eventId: number };
+export type ForcedEventStatus = { forced: ForcedEvent | null };
+export type LastEvent = { eventId: number | null; payoutMultiplier: number | null };
+
+export const forcedEventHttp = {
+  get: async (): Promise<ForcedEventStatus> => {
+    const r = await fetch('/api/devtool/force-event');
+    if (!r.ok) throw new Error(`get force-event: ${r.status}`);
+    return r.json();
+  },
+  set: async (mode: string, eventId: number): Promise<ForcedEventStatus> => {
+    const r = await fetch('/api/devtool/force-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, eventId })
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(`set force-event: ${r.status} ${t}`);
+    }
+    return r.json();
+  },
+  clear: async (): Promise<ForcedEventStatus> => {
+    const r = await fetch('/api/devtool/force-event', { method: 'DELETE' });
+    if (!r.ok) throw new Error(`clear force-event: ${r.status}`);
+    return r.json();
+  }
+};
+
+export const lastEventHttp = {
+  get: async (sessionId: string): Promise<LastEvent> => {
+    const r = await fetch(`/api/devtool/sessions/${encodeURIComponent(sessionId)}/last-event`);
+    if (!r.ok) throw new Error(`last-event: ${r.status}`);
+    return r.json();
+  }
+};
+
+export type EventEntry = {
+  eventId: number;
+  mode: string;
+  betAmount: number;
+  payout: number;
+  payoutMultiplier: number;
+  forced: boolean;
+  at: number;
+};
+
+export type EventsHistory = { count: number; events: EventEntry[] };
+
+export const historyHttp = {
+  get: async (sessionId: string): Promise<EventsHistory> => {
+    const r = await fetch(`/api/devtool/sessions/${encodeURIComponent(sessionId)}/events`);
+    if (!r.ok) throw new Error(`events history: ${r.status}`);
+    return r.json();
+  }
+};
+
+export function replayUrl(
+  gameUrl: string,
+  gameSlug: string,
+  lgsHostPort: string,
+  opts: {
+    mode: string;
+    eventId: number;
+    version?: string;
+    currency?: string;
+    amount?: number;
+    lang?: string;
+    device?: string;
+    social?: boolean;
+  }
+): string {
+  const u = new URL(gameUrl);
+  u.searchParams.set('replay', 'true');
+  u.searchParams.set('game', gameSlug);
+  u.searchParams.set('version', opts.version ?? '1');
+  u.searchParams.set('mode', opts.mode);
+  u.searchParams.set('event', String(opts.eventId));
+  u.searchParams.set('rgs_url', lgsHostPort);
+  if (opts.currency) u.searchParams.set('currency', opts.currency);
+  if (opts.amount !== undefined) u.searchParams.set('amount', String(opts.amount));
+  if (opts.lang) u.searchParams.set('lang', opts.lang);
+  if (opts.device) u.searchParams.set('device', opts.device);
+  if (opts.social !== undefined) u.searchParams.set('social', opts.social ? 'true' : 'false');
+  return u.toString();
+}
+
 // HTTP client (used by the test view served from LGS, no Tauri available)
 export const settingsHttp = {
   get: async (): Promise<Settings> => {
-    const r = await fetch('/api/admin/settings');
+    const r = await fetch('/api/devtool/settings');
     if (!r.ok) throw new Error(`get_settings: ${r.status}`);
     return r.json();
   },
   toggle: async (id: string, enabled: boolean): Promise<Settings> => {
-    const r = await fetch('/api/admin/settings/toggle', {
+    const r = await fetch('/api/devtool/settings/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, enabled })
@@ -138,7 +272,7 @@ export const settingsHttp = {
     return r.json();
   },
   addCustom: async (label: string, width: number, height: number): Promise<Settings> => {
-    const r = await fetch('/api/admin/settings/custom', {
+    const r = await fetch('/api/devtool/settings/custom', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label, width, height })
@@ -150,7 +284,7 @@ export const settingsHttp = {
     return r.json();
   },
   deleteCustom: async (id: string): Promise<Settings> => {
-    const r = await fetch(`/api/admin/settings/custom/${encodeURIComponent(id)}`, {
+    const r = await fetch(`/api/devtool/settings/custom/${encodeURIComponent(id)}`, {
       method: 'DELETE'
     });
     if (!r.ok) throw new Error(`deleteCustom: ${r.status}`);
