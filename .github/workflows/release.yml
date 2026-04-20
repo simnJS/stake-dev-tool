@@ -116,22 +116,62 @@ jobs:
           set -euo pipefail
           VERSION="${TAG#v}"
 
-          # List `id<TAB>name` for every asset on the draft release.
+          # `gh release view --json assets` doesn't expose the numeric asset
+          # `id` directly, but `apiUrl` ends with it. Extract it via parameter
+          # expansion (`${var##*/}` keeps everything after the last slash).
           gh release view "$TAG" --repo "$REPO" --json assets \
-            --jq '.assets[] | "\(.id)\t\(.name)"' > assets.tsv
+            --jq '.assets[] | "\(.apiUrl)\t\(.name)"' > assets.tsv
 
-          while IFS=$'\t' read -r id old; do
-            new=$(echo "$old" | sed -E "
+          rename_rule() {
+            echo "$1" | sed -E "
               s/^Stake\.Dev\.Tool_${VERSION}_x64-setup\.exe$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe/;
               s/^Stake\.Dev\.Tool_${VERSION}_x64-setup\.exe\.sig$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe.sig/;
               s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz/;
               s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz\.sig$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz.sig/;
               s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage/;
               s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage\.sig$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage.sig/;
-            ")
+            "
+          }
+
+          # Build a set of names that are about to be created so we can
+          # detect conflicts (e.g. left-over from a previous workflow run).
+          target_names=$(while IFS=$'\t' read -r api_url old; do
+            new=$(rename_rule "$old")
+            if [ "$new" != "$old" ]; then echo "$new"; fi
+          done < assets.tsv)
+
+          # Pass 1: delete anything in the way — old `latest.json` (we'll
+          # regenerate it in the manifest job) and any asset whose name
+          # collides with one we're about to assign.
+          while IFS=$'\t' read -r api_url old; do
+            asset_id="${api_url##*/}"
+            should_delete=false
+            if [ "$old" = "latest.json" ]; then
+              should_delete=true
+            elif echo "$target_names" | grep -Fxq "$old"; then
+              # Already-renamed asset from a previous (partially failed) run.
+              # Tauri-action will have re-uploaded the original; drop the
+              # leftover so the rename below can succeed.
+              should_delete=true
+            fi
+            if [ "$should_delete" = true ]; then
+              echo "Deleting (cleanup): $old"
+              gh api -X DELETE "repos/$REPO/releases/assets/$asset_id" >/dev/null
+            fi
+          done < assets.tsv
+
+          # Re-list assets after the cleanup pass so we don't try to rename
+          # anything we just deleted.
+          gh release view "$TAG" --repo "$REPO" --json assets \
+            --jq '.assets[] | "\(.apiUrl)\t\(.name)"' > assets.tsv
+
+          # Pass 2: actually rename.
+          while IFS=$'\t' read -r api_url old; do
+            asset_id="${api_url##*/}"
+            new=$(rename_rule "$old")
             if [ "$new" != "$old" ]; then
               echo "Renaming: $old → $new"
-              gh api -X PATCH "repos/$REPO/releases/assets/$id" -f name="$new" >/dev/null
+              gh api -X PATCH "repos/$REPO/releases/assets/$asset_id" -f name="$new" >/dev/null
             else
               echo "Skipping (no rename rule): $old"
             fi
