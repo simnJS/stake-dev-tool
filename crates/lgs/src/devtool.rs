@@ -244,8 +244,8 @@ pub struct CreateSavedRoundBody {
 async fn create_saved_round(
     Json(body): Json<CreateSavedRoundBody>,
 ) -> AppResult<Json<saved_rounds::SavedRound>> {
-    let r = saved_rounds::create(body.game_slug, body.mode, body.event_id, body.description)
-        .await?;
+    let r =
+        saved_rounds::create(body.game_slug, body.mode, body.event_id, body.description).await?;
     Ok(Json(r))
 }
 
