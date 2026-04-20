@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-04-21
+
+### Added
+
+- **Notable rounds panel** — new collapsible in the test view's Events
+  section. Scans each mode's lookup table and surfaces three notable bet
+  ids: a no-win round (`min`), the round whose `payoutMultiplier` is
+  closest to the weight-weighted average of winning multipliers (`avg`),
+  and the highest payout in the table (`max`). One-click Force on each
+  + ★ to bookmark with an auto-set description (`min` / `average win` /
+  `max win`). Stats are computed lazily on first panel open via
+  `GET /api/devtool/bet-stats/:game`.
+
 ## [0.3.1] — 2026-04-21
 
 ### Added
