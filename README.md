@@ -1,7 +1,7 @@
 # Stake Dev Tool
 
 A desktop development tool for slot games built on the
-[Stake Engine](https://stakeengine.com/) RGS contract. It bundles a
+[Stake Engine](https://stake-engine.com/) RGS contract. It bundles a
 high-performance Rust Local Game Server (LGS) with a multi-resolution test view
 so you can run, debug, and visually QA your slots without touching production
 infrastructure.
@@ -223,7 +223,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-- [Stake Engine](https://stakeengine.com/) — the RGS contract this tool
+- [Stake Engine](https://stake-engine.com/) — the RGS contract this tool
   targets.
 - [Tauri](https://tauri.app/), [SvelteKit](https://svelte.dev/),
   [axum](https://github.com/tokio-rs/axum), [rustls](https://github.com/rustls/rustls),
