@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-04-20
+
+### Added
+
+- **Saved rounds (bookmarks)** — flag interesting `{mode, eventId}` combos
+  with a free-form description and re-force them in one click. Persisted
+  to `saved-rounds.json` alongside profiles/settings. New endpoints:
+  `GET/POST /api/devtool/saved-rounds` and
+  `PATCH/DELETE /api/devtool/saved-rounds/:id`.
+- **★ Save button** next to the Force-event input — bookmarks the current
+  mode + eventId from the test view in one click, with optional description.
+
+### Changed
+
+- **Test-view sidebar restructured** into three clearly labeled sections
+  (Session / Events / Layout). Collapsible panels now expand inline under
+  their own header instead of all stacking at the bottom of the aside.
+  Sticky footer for status/error messages.
+
 ## [0.2.2] — 2026-04-20
 
 ### Fixed
