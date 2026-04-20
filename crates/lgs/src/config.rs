@@ -1,4 +1,4 @@
-use crate::types::{AuthConfig, JurisdictionFlags, API_MULTIPLIER};
+use crate::types::{API_MULTIPLIER, AuthConfig, JurisdictionFlags};
 use std::env;
 
 pub const CURRENCY: &str = "USD";
@@ -11,10 +11,26 @@ pub const STEP_BET: u64 = 20_000;
 pub const DEFAULT_BET_LEVEL: u64 = 200_000;
 
 pub const BET_LEVELS: &[u64] = &[
-    20_000, 40_000, 60_000, 80_000, 100_000,
-    200_000, 400_000, 600_000, 800_000, 1_000_000,
-    2_000_000, 4_000_000, 6_000_000, 8_000_000, 10_000_000,
-    20_000_000, 40_000_000, 60_000_000, 80_000_000, 100_000_000,
+    20_000,
+    40_000,
+    60_000,
+    80_000,
+    100_000,
+    200_000,
+    400_000,
+    600_000,
+    800_000,
+    1_000_000,
+    2_000_000,
+    4_000_000,
+    6_000_000,
+    8_000_000,
+    10_000_000,
+    20_000_000,
+    40_000_000,
+    60_000_000,
+    80_000_000,
+    100_000_000,
 ];
 
 pub fn jurisdiction() -> JurisdictionFlags {

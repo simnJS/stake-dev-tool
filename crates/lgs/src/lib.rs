@@ -106,5 +106,9 @@ pub async fn start_server_with_state(
             .await
     });
 
-    Ok(ServerHandle { bound_addr, shutdown: shutdown_tx, join })
+    Ok(ServerHandle {
+        bound_addr,
+        shutdown: shutdown_tx,
+        join,
+    })
 }

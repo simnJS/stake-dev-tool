@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -36,7 +36,9 @@ impl IntoResponse for AppError {
             AppError::SessionNotFound | AppError::ModeNotFound { .. } => StatusCode::NOT_FOUND,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        let body = Json(ErrorBody { error: self.to_string() });
+        let body = Json(ErrorBody {
+            error: self.to_string(),
+        });
         (status, body).into_response()
     }
 }

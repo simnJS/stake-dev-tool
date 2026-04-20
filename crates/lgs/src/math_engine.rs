@@ -80,7 +80,11 @@ impl MathEngine {
     }
 
     pub async fn get_mode_cost(&self, game: &str, mode_name: &str) -> AppResult<u64> {
-        Ok(self.get_mode(game, mode_name).await.map(|m| m.cost).unwrap_or(1))
+        Ok(self
+            .get_mode(game, mode_name)
+            .await
+            .map(|m| m.cost)
+            .unwrap_or(1))
     }
 
     pub async fn load_assets(&self, game: &str, mode: &GameMode) -> AppResult<Arc<ModeAssets>> {
@@ -174,7 +178,11 @@ fn parse_weights(text: &str) -> AppResult<WeightSampler> {
             .trim()
             .parse::<u32>()
             .map_err(|e| AppError::Parse(format!("weights line {lineno}: payout: {e}")))?;
-        entries.push(WeightEntry { event_id, weight, payout_multiplier });
+        entries.push(WeightEntry {
+            event_id,
+            weight,
+            payout_multiplier,
+        });
     }
 
     let mut cum_weights = Vec::with_capacity(entries.len());
@@ -186,7 +194,11 @@ fn parse_weights(text: &str) -> AppResult<WeightSampler> {
         cum_weights.push(total);
     }
 
-    Ok(WeightSampler { entries, cum_weights, total_weight: total })
+    Ok(WeightSampler {
+        entries,
+        cum_weights,
+        total_weight: total,
+    })
 }
 
 fn decompress_and_index(compressed: &[u8]) -> AppResult<BooksIndex> {
@@ -252,10 +264,10 @@ fn read_event(idx: &BooksIndex, event_id: u32) -> AppResult<Arc<RawValue>> {
         events: Option<&'a RawValue>,
     }
 
-    let line_str = std::str::from_utf8(slice)
-        .map_err(|e| AppError::Parse(format!("event utf8: {e}")))?;
-    let wrapper: Wrapper = serde_json::from_str(line_str)
-        .map_err(|e| AppError::Parse(format!("event parse: {e}")))?;
+    let line_str =
+        std::str::from_utf8(slice).map_err(|e| AppError::Parse(format!("event utf8: {e}")))?;
+    let wrapper: Wrapper =
+        serde_json::from_str(line_str).map_err(|e| AppError::Parse(format!("event parse: {e}")))?;
     let raw = match wrapper.events {
         Some(events) => RawValue::from_string(events.get().to_string())
             .map_err(|e| AppError::Parse(format!("event raw: {e}")))?,

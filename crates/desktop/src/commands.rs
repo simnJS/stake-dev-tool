@@ -90,7 +90,11 @@ pub async fn lgs_status(state: State<'_, AppState>) -> Result<LgsStatus, String>
             bound_addr: Some(r.bound_addr.to_string()),
             math_dir: Some(r.math_dir.clone()),
         },
-        None => LgsStatus { running: false, bound_addr: None, math_dir: None },
+        None => LgsStatus {
+            running: false,
+            bound_addr: None,
+            math_dir: None,
+        },
     })
 }
 
@@ -118,13 +122,9 @@ pub async fn start_lgs(
     let sessions = Arc::new(SessionStore::new());
     let lgs_state = Arc::new(LgsState::from_parts(sessions, engine));
 
-    let handle = start_server_with_state(
-        lgs_state.clone(),
-        format!("127.0.0.1:{port}"),
-        ui_dir,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let handle = start_server_with_state(lgs_state.clone(), format!("127.0.0.1:{port}"), ui_dir)
+        .await
+        .map_err(|e| e.to_string())?;
     let bound_addr = handle.bound_addr;
 
     {
@@ -157,7 +157,11 @@ pub async fn stop_lgs(state: State<'_, AppState>) -> Result<LgsStatus, String> {
         let _ = r.join.await;
     }
 
-    Ok(LgsStatus { running: false, bound_addr: None, math_dir: None })
+    Ok(LgsStatus {
+        running: false,
+        bound_addr: None,
+        math_dir: None,
+    })
 }
 
 #[tauri::command]
@@ -171,7 +175,9 @@ pub async fn list_games(math_dir: String) -> Result<Vec<GameInfo>, String> {
     }
 
     let mut games = Vec::new();
-    let mut entries = tokio::fs::read_dir(&root).await.map_err(|e| e.to_string())?;
+    let mut entries = tokio::fs::read_dir(&root)
+        .await
+        .map_err(|e| e.to_string())?;
     while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
         if !entry.file_type().await.map_err(|e| e.to_string())?.is_dir() {
             continue;
@@ -208,10 +214,7 @@ pub async fn inspect_game_folder(path: String) -> Result<InspectedGame, String> 
 
     let index_path = picked.join("index.json");
     if !index_path.exists() {
-        return Err(format!(
-            "no index.json found in {}",
-            picked.display()
-        ));
+        return Err(format!("no index.json found in {}", picked.display()));
     }
 
     let slug = picked
@@ -235,7 +238,9 @@ pub async fn inspect_game_folder(path: String) -> Result<InspectedGame, String> 
 }
 
 async fn read_modes(index_path: &Path) -> Result<Vec<String>, String> {
-    let bytes = tokio::fs::read(index_path).await.map_err(|e| e.to_string())?;
+    let bytes = tokio::fs::read(index_path)
+        .await
+        .map_err(|e| e.to_string())?;
     #[derive(Deserialize)]
     struct ModeRef {
         name: String,
@@ -268,7 +273,8 @@ pub async fn launch_game(
     let port = bound.rsplit(':').next().unwrap_or("3001");
     let rgs_url = format!("localhost:{port}/api/rgs/{}", options.game_slug);
 
-    let mut url = url::Url::parse(&options.game_url).map_err(|e| format!("invalid gameUrl: {e}"))?;
+    let mut url =
+        url::Url::parse(&options.game_url).map_err(|e| format!("invalid gameUrl: {e}"))?;
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("sessionID", &session_id);
@@ -276,7 +282,14 @@ pub async fn launch_game(
         q.append_pair("lang", options.lang.as_deref().unwrap_or("en"));
         q.append_pair("currency", options.currency.as_deref().unwrap_or("USD"));
         q.append_pair("device", options.device.as_deref().unwrap_or("desktop"));
-        q.append_pair("social", if options.social.unwrap_or(false) { "true" } else { "false" });
+        q.append_pair(
+            "social",
+            if options.social.unwrap_or(false) {
+                "true"
+            } else {
+                "false"
+            },
+        );
         if let Some(extras) = &options.extra_params {
             for (k, v) in extras {
                 q.append_pair(k, v);
@@ -351,7 +364,9 @@ pub struct CaStatus {
 
 #[tauri::command]
 pub async fn ca_status() -> Result<CaStatus, String> {
-    let ca = tls::LocalCa::load_or_create().await.map_err(|e| e.to_string())?;
+    let ca = tls::LocalCa::load_or_create()
+        .await
+        .map_err(|e| e.to_string())?;
     let installed = tls::is_ca_installed_user_store();
     Ok(CaStatus {
         installed,
@@ -361,7 +376,9 @@ pub async fn ca_status() -> Result<CaStatus, String> {
 
 #[tauri::command]
 pub async fn install_ca() -> Result<CaStatus, String> {
-    let ca = tls::LocalCa::load_or_create().await.map_err(|e| e.to_string())?;
+    let ca = tls::LocalCa::load_or_create()
+        .await
+        .map_err(|e| e.to_string())?;
     tls::install_ca_user_store(&ca.ca_cert_path()).map_err(|e| e.to_string())?;
     Ok(CaStatus {
         installed: tls::is_ca_installed_user_store(),
@@ -372,7 +389,9 @@ pub async fn install_ca() -> Result<CaStatus, String> {
 #[tauri::command]
 pub async fn uninstall_ca() -> Result<CaStatus, String> {
     tls::uninstall_ca_user_store().map_err(|e| e.to_string())?;
-    let ca = tls::LocalCa::load_or_create().await.map_err(|e| e.to_string())?;
+    let ca = tls::LocalCa::load_or_create()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(CaStatus {
         installed: tls::is_ca_installed_user_store(),
         ca_path: ca.ca_cert_path().to_string_lossy().into_owned(),
@@ -410,9 +429,7 @@ pub async fn add_custom_resolution(
 }
 
 #[tauri::command]
-pub async fn delete_custom_resolution(
-    id: String,
-) -> Result<lgs_settings::Settings, String> {
+pub async fn delete_custom_resolution(id: String) -> Result<lgs_settings::Settings, String> {
     lgs_settings::delete_custom(&id)
         .await
         .map_err(|e| e.to_string())
@@ -488,7 +505,11 @@ fn find_chromium_browser() -> Option<PathBuf> {
             "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
         ]
     } else {
-        &["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/microsoft-edge"]
+        &[
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/microsoft-edge",
+        ]
     };
 
     for c in candidates {
@@ -572,7 +593,8 @@ pub async fn build_launch_url(
     let session_id = Uuid::new_v4().to_string();
     let port = bound.rsplit(':').next().unwrap_or("3001");
     let rgs_url = format!("localhost:{port}/api/rgs/{}", options.game_slug);
-    let mut url = url::Url::parse(&options.game_url).map_err(|e| format!("invalid gameUrl: {e}"))?;
+    let mut url =
+        url::Url::parse(&options.game_url).map_err(|e| format!("invalid gameUrl: {e}"))?;
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("sessionID", &session_id);
@@ -580,7 +602,14 @@ pub async fn build_launch_url(
         q.append_pair("lang", options.lang.as_deref().unwrap_or("en"));
         q.append_pair("currency", options.currency.as_deref().unwrap_or("USD"));
         q.append_pair("device", options.device.as_deref().unwrap_or("desktop"));
-        q.append_pair("social", if options.social.unwrap_or(false) { "true" } else { "false" });
+        q.append_pair(
+            "social",
+            if options.social.unwrap_or(false) {
+                "true"
+            } else {
+                "false"
+            },
+        );
         if let Some(extras) = &options.extra_params {
             for (k, v) in extras {
                 q.append_pair(k, v);

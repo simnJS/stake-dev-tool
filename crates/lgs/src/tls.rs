@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
     SanType,
@@ -32,13 +32,9 @@ impl LocalCa {
         let leaf_cert_path = dir.join("localhost.pem");
         let leaf_key_path = dir.join("localhost.key.pem");
 
-        let all_exist = futures_all_exist(&[
-            &ca_cert_path,
-            &ca_key_path,
-            &leaf_cert_path,
-            &leaf_key_path,
-        ])
-        .await;
+        let all_exist =
+            futures_all_exist(&[&ca_cert_path, &ca_key_path, &leaf_cert_path, &leaf_key_path])
+                .await;
 
         if all_exist {
             return Ok(Self {
@@ -110,10 +106,8 @@ fn generate_ca_and_leaf() -> Result<(String, String, String, String)> {
     let ca_cert = ca_params.self_signed(&ca_key)?;
 
     // ----- Leaf cert for localhost -----
-    let mut leaf_params = CertificateParams::new(vec![
-        "localhost".to_string(),
-        "127.0.0.1".to_string(),
-    ])?;
+    let mut leaf_params =
+        CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()])?;
     leaf_params.subject_alt_names = vec![
         SanType::DnsName("localhost".try_into()?),
         SanType::IpAddress(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
@@ -167,7 +161,9 @@ pub fn install_ca_user_store(ca_pem_path: &Path) -> Result<()> {
             "-user",
             "-addstore",
             "Root",
-            ca_pem_path.to_str().ok_or_else(|| anyhow!("invalid path"))?,
+            ca_pem_path
+                .to_str()
+                .ok_or_else(|| anyhow!("invalid path"))?,
         ])
         .output()
         .context("failed to spawn certutil")?;

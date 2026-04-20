@@ -254,11 +254,13 @@
 
     <div class="mb-4 space-y-3">
       <div>
-        <label class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+        <label for="initial-balance" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
           Initial balance
         </label>
         <div class="flex gap-1.5">
           <input
+            id="initial-balance"
+            name="initial-balance"
             type="number"
             bind:value={balance}
             min="0"
@@ -277,16 +279,18 @@
 
       <div class="grid grid-cols-2 gap-2">
         <div>
-          <label class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          <div class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
             Lang
-          </label>
+          </div>
           <Picker items={LANGUAGES} value={language} onSelect={(l) => (language = l)} />
         </div>
         <div>
-          <label class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          <label for="device-select" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
             Device
           </label>
           <select
+            id="device-select"
+            name="device-select"
             bind:value={device}
             class="w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1.5 font-mono text-xs focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
           >

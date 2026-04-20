@@ -419,11 +419,13 @@
     <section class="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-6 backdrop-blur">
       <!-- Step 1: game folder -->
       <div class="mb-6">
-        <label class="mb-1.5 block text-xs font-medium text-zinc-400">
+        <label for="main-math-folder" class="mb-1.5 block text-xs font-medium text-zinc-400">
           1 · Math folder of your game
         </label>
         <div class="flex gap-2">
           <input
+            id="main-math-folder"
+            name="main-math-folder"
             type="text"
             value={game?.gamePath ?? ''}
             readonly
@@ -452,10 +454,12 @@
 
       <!-- Step 2: front URL -->
       <div class="mb-6">
-        <label class="mb-1.5 block text-xs font-medium text-zinc-400">
+        <label for="main-front-url" class="mb-1.5 block text-xs font-medium text-zinc-400">
           2 · Front URL of your game
         </label>
         <input
+          id="main-front-url"
+          name="main-front-url"
           type="url"
           bind:value={gameUrl}
           placeholder="http://localhost:5174"
@@ -523,11 +527,13 @@
           Quick-load this math folder + front URL next time.
         </div>
       </div>
-      <label class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+      <label for="profile-name" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
         Name
       </label>
       <!-- svelte-ignore a11y_autofocus -->
       <input
+        id="profile-name"
+        name="profile-name"
         type="text"
         bind:value={saveName}
         placeholder="e.g. easter-guardian-dev"

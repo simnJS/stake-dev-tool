@@ -47,22 +47,20 @@ impl SessionStore {
             game: init.game,
             balance: init.balance.unwrap_or(config::INITIAL_BALANCE),
             currency: init.currency.unwrap_or(config::CURRENCY),
-            language: init.language.unwrap_or_else(|| config::LANGUAGE.to_string()),
+            language: init
+                .language
+                .unwrap_or_else(|| config::LANGUAGE.to_string()),
             active_round: None,
             created_at: now,
         };
-        self.sessions.insert(session_id.to_string(), session.clone());
+        self.sessions
+            .insert(session_id.to_string(), session.clone());
         session
     }
 
     /// Fetch existing session, or create with defaults. Used by authenticate
     /// so a pre-configured session (set via Tauri prepare_session) is preserved.
-    pub fn get_or_create(
-        &self,
-        session_id: &str,
-        game: &str,
-        language: Option<String>,
-    ) -> Session {
+    pub fn get_or_create(&self, session_id: &str, game: &str, language: Option<String>) -> Session {
         if let Some(s) = self.sessions.get(session_id) {
             return s.clone();
         }

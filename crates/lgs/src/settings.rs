@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
@@ -83,7 +83,9 @@ async fn save(settings: &Settings) -> Result<()> {
         fs::create_dir_all(parent).await?;
     }
     let bytes = serde_json::to_vec_pretty(settings).context("serialize settings")?;
-    fs::write(&path, bytes).await.context("write settings.json")?;
+    fs::write(&path, bytes)
+        .await
+        .context("write settings.json")?;
     Ok(())
 }
 
@@ -131,7 +133,9 @@ pub async fn delete_custom(id: &str) -> Result<Settings> {
     let before = s.resolutions.len();
     s.resolutions.retain(|r| !(r.id == id && !r.builtin));
     if s.resolutions.len() == before {
-        return Err(anyhow!("custom resolution not found (cannot delete builtins)"));
+        return Err(anyhow!(
+            "custom resolution not found (cannot delete builtins)"
+        ));
     }
     save(&s).await?;
     Ok(s)

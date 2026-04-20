@@ -13,10 +13,7 @@ use std::sync::Arc;
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route(
-            "/api/rgs/:game/wallet/authenticate",
-            post(authenticate),
-        )
+        .route("/api/rgs/:game/wallet/authenticate", post(authenticate))
         .route("/api/rgs/:game/wallet/balance", post(balance))
         .route("/api/rgs/:game/wallet/play", post(play))
         .route("/api/rgs/:game/wallet/end-round", post(end_round))
@@ -72,7 +69,10 @@ async fn balance(
     Json(body): Json<BalanceBody>,
 ) -> AppResult<Json<BalanceResponse>> {
     let session_id = body.session_id.ok_or(AppError::MissingField("sessionID"))?;
-    let session = state.sessions.get(&session_id).ok_or(AppError::SessionNotFound)?;
+    let session = state
+        .sessions
+        .get(&session_id)
+        .ok_or(AppError::SessionNotFound)?;
     Ok(Json(BalanceResponse {
         balance: Balance {
             amount: session.balance,
@@ -132,7 +132,10 @@ async fn play(
         .sessions
         .set_active_round(&session_id, Some(round.clone()));
 
-    let final_session = state.sessions.get(&session_id).ok_or(AppError::SessionNotFound)?;
+    let final_session = state
+        .sessions
+        .get(&session_id)
+        .ok_or(AppError::SessionNotFound)?;
 
     Ok(Json(PlayResponse {
         balance: Balance {
@@ -155,11 +158,17 @@ async fn end_round(
     Json(body): Json<EndRoundBody>,
 ) -> AppResult<Json<EndRoundResponse>> {
     let session_id = body.session_id.ok_or(AppError::MissingField("sessionID"))?;
-    state.sessions.get(&session_id).ok_or(AppError::SessionNotFound)?;
+    state
+        .sessions
+        .get(&session_id)
+        .ok_or(AppError::SessionNotFound)?;
 
     state.sessions.set_active_round(&session_id, None);
 
-    let session = state.sessions.get(&session_id).ok_or(AppError::SessionNotFound)?;
+    let session = state
+        .sessions
+        .get(&session_id)
+        .ok_or(AppError::SessionNotFound)?;
     Ok(Json(EndRoundResponse {
         balance: Balance {
             amount: session.balance,
@@ -184,6 +193,9 @@ async fn bet_event(
     Json(body): Json<BetEventBody>,
 ) -> AppResult<Json<BetEventResponse>> {
     let session_id = body.session_id.ok_or(AppError::MissingField("sessionID"))?;
-    state.sessions.get(&session_id).ok_or(AppError::SessionNotFound)?;
+    state
+        .sessions
+        .get(&session_id)
+        .ok_or(AppError::SessionNotFound)?;
     Ok(Json(BetEventResponse { event: body.event }))
 }

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use lgs::settings::ResolutionPreset;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -45,18 +45,21 @@ async fn load() -> Result<ProfilesFile> {
         return Ok(ProfilesFile::default());
     }
     let bytes = fs::read(&path).await.context("read profiles.json")?;
-    let parsed: ProfilesFile =
-        serde_json::from_slice(&bytes).context("parse profiles.json")?;
+    let parsed: ProfilesFile = serde_json::from_slice(&bytes).context("parse profiles.json")?;
     Ok(parsed)
 }
 
 async fn save(file: &ProfilesFile) -> Result<()> {
     let path = profiles_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).await.context("create profiles dir")?;
+        fs::create_dir_all(parent)
+            .await
+            .context("create profiles dir")?;
     }
     let bytes = serde_json::to_vec_pretty(file).context("serialize profiles")?;
-    fs::write(&path, bytes).await.context("write profiles.json")?;
+    fs::write(&path, bytes)
+        .await
+        .context("write profiles.json")?;
     Ok(())
 }
 

@@ -3,7 +3,7 @@ mod profiles;
 mod state;
 
 use crate::state::AppState;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

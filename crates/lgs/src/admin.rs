@@ -12,10 +12,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/admin/sessions/prepare", post(prepare_session))
         .route("/api/admin/status", get(status))
-        .route(
-            "/api/admin/settings",
-            get(get_settings_handler),
-        )
+        .route("/api/admin/settings", get(get_settings_handler))
         .route(
             "/api/admin/settings/toggle",
             post(toggle_resolution_handler),
