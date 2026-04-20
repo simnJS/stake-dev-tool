@@ -197,6 +197,61 @@ export const forcedEventHttp = {
   }
 };
 
+export type SavedRound = {
+  id: string;
+  gameSlug: string;
+  mode: string;
+  eventId: number;
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export const savedRoundsHttp = {
+  list: async (gameSlug?: string): Promise<SavedRound[]> => {
+    const qs = gameSlug ? `?gameSlug=${encodeURIComponent(gameSlug)}` : '';
+    const r = await fetch(`/api/devtool/saved-rounds${qs}`);
+    if (!r.ok) throw new Error(`list saved-rounds: ${r.status}`);
+    const j = (await r.json()) as { rounds: SavedRound[] };
+    return j.rounds;
+  },
+  create: async (
+    gameSlug: string,
+    mode: string,
+    eventId: number,
+    description: string
+  ): Promise<SavedRound> => {
+    const r = await fetch('/api/devtool/saved-rounds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameSlug, mode, eventId, description })
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(`create saved-round: ${r.status} ${t}`);
+    }
+    return r.json();
+  },
+  update: async (id: string, description: string): Promise<SavedRound> => {
+    const r = await fetch(`/api/devtool/saved-rounds/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description })
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(`update saved-round: ${r.status} ${t}`);
+    }
+    return r.json();
+  },
+  remove: async (id: string): Promise<void> => {
+    const r = await fetch(`/api/devtool/saved-rounds/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (!r.ok) throw new Error(`delete saved-round: ${r.status}`);
+  }
+};
+
 export const lastEventHttp = {
   get: async (sessionId: string): Promise<LastEvent> => {
     const r = await fetch(`/api/devtool/sessions/${encodeURIComponent(sessionId)}/last-event`);

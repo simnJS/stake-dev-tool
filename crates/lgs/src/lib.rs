@@ -4,6 +4,7 @@ pub mod error;
 pub mod math_engine;
 pub mod replay;
 pub mod routes;
+pub mod saved_rounds;
 pub mod session;
 pub mod settings;
 pub mod state;

@@ -10,10 +10,12 @@
     forcedEventHttp,
     lastEventHttp,
     historyHttp,
+    savedRoundsHttp,
     replayUrl,
     type ResolutionPreset,
     type LastEvent,
-    type EventEntry
+    type EventEntry,
+    type SavedRound
   } from '$lib/api';
 
   // Stake social-mode currencies (XGC = Gold Coin, XSC = Stake Cash) only
@@ -91,6 +93,75 @@
 
   let replayMode = $state<string>('base');
   let replayEventId = $state<number | null>(null);
+
+  // ---- Saved rounds ----
+
+  let savedRounds = $state<SavedRound[]>([]);
+  let showSavedRounds = $state(true);
+  let savingRound = $state(false);
+  let saveDescription = $state('');
+  let showSaveInput = $state(false);
+
+  async function reloadSavedRounds() {
+    if (!gameSlug) return;
+    try {
+      savedRounds = await savedRoundsHttp.list(gameSlug);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function saveCurrentRound() {
+    if (forcedEventId === null || forcedEventId <= 0) {
+      error = 'Enter a valid event id before saving.';
+      return;
+    }
+    if (!gameSlug) return;
+    savingRound = true;
+    try {
+      await savedRoundsHttp.create(
+        gameSlug,
+        forcedMode,
+        forcedEventId,
+        saveDescription.trim()
+      );
+      saveDescription = '';
+      showSaveInput = false;
+      await reloadSavedRounds();
+      info = `Saved ${forcedMode} #${forcedEventId}.`;
+      setTimeout(() => (info = null), 2000);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      savingRound = false;
+    }
+  }
+
+  async function applySavedRound(r: SavedRound) {
+    forcedMode = r.mode;
+    forcedEventId = r.eventId;
+    busy = true;
+    try {
+      const resp = await forcedEventHttp.set(r.mode, r.eventId);
+      forcedEventBanner = resp.forced;
+      info = `Forced: ${r.mode} #${r.eventId}${r.description ? ` — ${r.description}` : ''}.`;
+      setTimeout(() => (info = null), 3000);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function deleteSavedRound(r: SavedRound) {
+    if (!confirm(`Delete saved round ${r.mode} #${r.eventId}?`)) return;
+    try {
+      await savedRoundsHttp.remove(r.id);
+      await reloadSavedRounds();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
 
   async function applyForcedEvent() {
     if (forcedEventId === null || forcedEventId <= 0) {
@@ -198,6 +269,7 @@
       rebuildFramesFromResolutions();
       const f = await forcedEventHttp.get();
       forcedEventBanner = f.forced;
+      await reloadSavedRounds();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       return;
@@ -538,11 +610,94 @@
         >
           Force
         </button>
+        <button
+          onclick={() => (showSaveInput = !showSaveInput)}
+          disabled={forcedEventId === null || forcedEventId <= 0}
+          title="Save this round for later"
+          class="rounded border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
+        >
+          ★
+        </button>
       </div>
+      {#if showSaveInput}
+        <div class="mt-1.5 flex gap-1.5">
+          <input
+            type="text"
+            bind:value={saveDescription}
+            placeholder="Description (optional)"
+            maxlength="120"
+            onkeydown={(e) => e.key === 'Enter' && saveCurrentRound()}
+            class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[11px] focus:border-emerald-500/40 focus:outline-none"
+          />
+          <button
+            onclick={saveCurrentRound}
+            disabled={savingRound}
+            class="rounded bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+      {/if}
       {#if forcedEventBanner}
         <div class="mt-1.5 rounded bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
           Active: <span class="font-mono">{forcedEventBanner.mode} #{forcedEventBanner.eventId}</span>
         </div>
+      {/if}
+    </div>
+
+    <!-- Saved rounds -->
+    <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
+      <button
+        onclick={() => (showSavedRounds = !showSavedRounds)}
+        class="flex w-full items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500 transition hover:text-zinc-300"
+      >
+        <span>Saved rounds ({savedRounds.length})</span>
+        <svg
+          class="h-3 w-3 transition {showSavedRounds ? 'rotate-180' : ''}"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          viewBox="0 0 24 24"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {#if showSavedRounds}
+        {#if savedRounds.length === 0}
+          <div class="mt-1.5 text-[10px] text-zinc-600">
+            No saved rounds yet. Enter a mode + event id above and click ★ to bookmark.
+          </div>
+        {:else}
+          <div class="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
+            {#each savedRounds as r (r.id)}
+              <div class="group flex items-center gap-1.5 rounded px-1.5 py-1 transition hover:bg-zinc-800/40">
+                <button
+                  onclick={() => applySavedRound(r)}
+                  disabled={busy}
+                  title="Force this round"
+                  class="flex min-w-0 flex-1 flex-col items-start text-left"
+                >
+                  <span class="flex w-full items-baseline gap-1.5">
+                    <span class="font-mono text-[11px] text-sky-300">{r.mode}</span>
+                    <span class="font-mono text-[11px] font-semibold text-zinc-100">#{r.eventId}</span>
+                  </span>
+                  {#if r.description}
+                    <span class="truncate w-full text-[10px] text-zinc-400">{r.description}</span>
+                  {/if}
+                </button>
+                <button
+                  onclick={() => deleteSavedRound(r)}
+                  title="Delete"
+                  class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
+                >
+                  <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
 

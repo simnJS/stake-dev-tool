@@ -1,9 +1,10 @@
 use crate::error::{AppError, AppResult};
+use crate::saved_rounds;
 use crate::session::SessionInit;
 use crate::settings;
 use crate::state::{AppState, ForcedEvent};
-use axum::extract::{Path, State};
-use axum::routing::{delete, get, post};
+use axum::extract::{Path, Query, State};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -33,6 +34,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/devtool/sessions/:sid/last-event", get(get_last_event))
         .route("/api/devtool/sessions/:sid/events", get(get_events_history))
+        .route(
+            "/api/devtool/saved-rounds",
+            get(list_saved_rounds).post(create_saved_round),
+        )
+        .route(
+            "/api/devtool/saved-rounds/:id",
+            patch(update_saved_round).delete(delete_saved_round),
+        )
         .with_state(state)
 }
 
@@ -199,4 +208,66 @@ async fn get_events_history(
         count: s.event_history.len(),
         events: s.event_history,
     }))
+}
+
+// ========== Saved rounds ==========
+
+#[derive(Deserialize)]
+pub struct SavedRoundsQuery {
+    #[serde(default, rename = "gameSlug")]
+    pub game_slug: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SavedRoundsResponse {
+    pub rounds: Vec<saved_rounds::SavedRound>,
+}
+
+async fn list_saved_rounds(
+    Query(q): Query<SavedRoundsQuery>,
+) -> AppResult<Json<SavedRoundsResponse>> {
+    let rounds = saved_rounds::list(q.game_slug.as_deref()).await?;
+    Ok(Json(SavedRoundsResponse { rounds }))
+}
+
+#[derive(Deserialize)]
+pub struct CreateSavedRoundBody {
+    #[serde(rename = "gameSlug")]
+    pub game_slug: String,
+    pub mode: String,
+    #[serde(rename = "eventId")]
+    pub event_id: u32,
+    #[serde(default)]
+    pub description: String,
+}
+
+async fn create_saved_round(
+    Json(body): Json<CreateSavedRoundBody>,
+) -> AppResult<Json<saved_rounds::SavedRound>> {
+    let r = saved_rounds::create(body.game_slug, body.mode, body.event_id, body.description)
+        .await?;
+    Ok(Json(r))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSavedRoundBody {
+    pub description: String,
+}
+
+async fn update_saved_round(
+    Path(id): Path<String>,
+    Json(body): Json<UpdateSavedRoundBody>,
+) -> AppResult<Json<saved_rounds::SavedRound>> {
+    let r = saved_rounds::update_description(&id, body.description).await?;
+    Ok(Json(r))
+}
+
+#[derive(Serialize)]
+pub struct OkResponse {
+    pub ok: bool,
+}
+
+async fn delete_saved_round(Path(id): Path<String>) -> AppResult<Json<OkResponse>> {
+    saved_rounds::delete(&id).await?;
+    Ok(Json(OkResponse { ok: true }))
 }
