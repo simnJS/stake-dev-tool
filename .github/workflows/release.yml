@@ -15,11 +15,14 @@ jobs:
       matrix:
         include:
           - platform: 'windows-latest'
-            target: 'x86_64-pc-windows-msvc'
+            rust-targets: 'x86_64-pc-windows-msvc'
+            tauri-args: ''
           - platform: 'macos-latest'
-            target: 'universal-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            tauri-args: '--target universal-apple-darwin'
           - platform: 'ubuntu-latest'
-            target: 'x86_64-unknown-linux-gnu'
+            rust-targets: 'x86_64-unknown-linux-gnu'
+            tauri-args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -40,7 +43,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust-targets }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -66,4 +69,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           projectPath: .
-          args: --config crates/desktop/tauri.conf.json
+          args: --config crates/desktop/tauri.conf.json ${{ matrix.tauri-args }}
