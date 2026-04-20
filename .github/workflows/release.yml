@@ -51,9 +51,18 @@ jobs:
       - name: Setup Rust (stable + targets)
         shell: bash
         run: |
-          rustup update stable --no-self-update
+          # Retry rustup to mitigate transient network failures on runners.
+          for attempt in 1 2 3; do
+            rustup update stable --no-self-update && break
+            echo "rustup update attempt $attempt failed, retrying in 10s..." >&2
+            sleep 10
+          done
           rustup default stable
-          rustup target add ${{ matrix.rust-targets }}
+          for attempt in 1 2 3; do
+            rustup target add ${{ matrix.rust-targets }} && break
+            echo "target add attempt $attempt failed, retrying in 10s..." >&2
+            sleep 10
+          done
           rustc --version
 
       - uses: Swatinem/rust-cache@v2
