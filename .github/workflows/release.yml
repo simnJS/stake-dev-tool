@@ -98,10 +98,49 @@ jobs:
           projectPath: .
           args: --config crates/desktop/tauri.conf.json ${{ matrix.tauri-args }}
 
+  # Rename Tauri's auto-generated asset names to a clean, consistent scheme
+  # before generating the manifest. Tauri produces inconsistent names like
+  # `Stake.Dev.Tool_0.3.0_x64-setup.exe` and `Stake.Dev.Tool_aarch64.app.tar.gz`
+  # (dots in product name, mixed `x64`/`amd64`, missing version on macOS).
+  # We standardize on: `Stake-Dev-Tool-vX.Y.Z-{windows,macos,linux}-{x64,arm64}.<ext>`.
+  rename:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rename release assets to a clean, consistent scheme
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+
+          # List `id<TAB>name` for every asset on the draft release.
+          gh release view "$TAG" --repo "$REPO" --json assets \
+            --jq '.assets[] | "\(.id)\t\(.name)"' > assets.tsv
+
+          while IFS=$'\t' read -r id old; do
+            new=$(echo "$old" | sed -E "
+              s/^Stake\.Dev\.Tool_${VERSION}_x64-setup\.exe$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe/;
+              s/^Stake\.Dev\.Tool_${VERSION}_x64-setup\.exe\.sig$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe.sig/;
+              s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz/;
+              s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz\.sig$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz.sig/;
+              s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage/;
+              s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage\.sig$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage.sig/;
+            ")
+            if [ "$new" != "$old" ]; then
+              echo "Renaming: $old → $new"
+              gh api -X PATCH "repos/$REPO/releases/assets/$id" -f name="$new" >/dev/null
+            else
+              echo "Skipping (no rename rule): $old"
+            fi
+          done < assets.tsv
+
   # Build the updater manifest (latest.json) once all platforms finished and
   # attach it to the draft release so tauri-plugin-updater can find it.
   manifest:
-    needs: build
+    needs: rename
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -146,12 +185,12 @@ jobs:
             fi
           }
 
-          win_exe=$(find_asset '.*x64-setup\.exe$')
-          win_sig_name=$(find_asset '.*x64-setup\.exe\.sig$')
-          mac_tar=$(find_asset 'aarch64\.app\.tar\.gz$')
-          mac_sig_name=$(find_asset 'aarch64\.app\.tar\.gz\.sig$')
-          linux_app=$(find_asset 'amd64\.AppImage$')
-          linux_sig_name=$(find_asset 'amd64\.AppImage\.sig$')
+          win_exe=$(find_asset 'windows-x64\.exe$')
+          win_sig_name=$(find_asset 'windows-x64\.exe\.sig$')
+          mac_tar=$(find_asset 'macos-arm64\.app\.tar\.gz$')
+          mac_sig_name=$(find_asset 'macos-arm64\.app\.tar\.gz\.sig$')
+          linux_app=$(find_asset 'linux-x64\.AppImage$')
+          linux_sig_name=$(find_asset 'linux-x64\.AppImage\.sig$')
 
           echo "Found assets:"
           echo "  win: $win_exe / $win_sig_name"
