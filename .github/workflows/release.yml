@@ -116,10 +116,13 @@ jobs:
           VERSION="${TAG#v}"
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Fetch release info to discover asset URLs + signatures.
-          release_json=$(gh api "/repos/$REPO/releases/tags/$TAG")
+          # `gh release view` works for drafts too (the API /releases/tags/
+          # endpoint returns 404 for drafts). Get asset list + body.
+          release_json=$(gh release view "$TAG" --json assets,body --repo "$REPO")
+
           asset_url() {
-            echo "$release_json" | jq -r --arg name "$1" '.assets[] | select(.name==$name) | .browser_download_url'
+            echo "$release_json" | jq -r --arg name "$1" \
+              '.assets[] | select(.name==$name) | .url'
           }
           asset_names=$(echo "$release_json" | jq -r '.assets[].name')
 
@@ -128,35 +131,48 @@ jobs:
             echo "$asset_names" | grep -E "$pattern" | head -n1 || true
           }
 
-          # Windows NSIS (.exe) — updater artefact is the installer + .sig
+          # Download signature files (contents, not just URLs) to embed in manifest.
+          mkdir -p sigs
+          download_sig() {
+            local name="$1"
+            if [ -n "$name" ]; then
+              gh release download "$TAG" --pattern "$name" --dir sigs --clobber --repo "$REPO" || true
+              cat "sigs/$name" 2>/dev/null || true
+            fi
+          }
+
           win_exe=$(find_asset '.*x64-setup\.exe$')
-          win_sig=$(find_asset '.*x64-setup\.exe\.sig$')
-
-          # macOS Apple Silicon — updater artefact is the app.tar.gz + .sig
+          win_sig_name=$(find_asset '.*x64-setup\.exe\.sig$')
           mac_tar=$(find_asset 'aarch64\.app\.tar\.gz$')
-          mac_sig=$(find_asset 'aarch64\.app\.tar\.gz\.sig$')
-
-          # Linux AppImage — updater artefact is the AppImage + .sig
+          mac_sig_name=$(find_asset 'aarch64\.app\.tar\.gz\.sig$')
           linux_app=$(find_asset 'amd64\.AppImage$')
-          linux_sig=$(find_asset 'amd64\.AppImage\.sig$')
+          linux_sig_name=$(find_asset 'amd64\.AppImage\.sig$')
+
+          echo "Found assets:"
+          echo "  win: $win_exe / $win_sig_name"
+          echo "  mac: $mac_tar / $mac_sig_name"
+          echo "  linux: $linux_app / $linux_sig_name"
 
           platforms_json="{}"
-          if [ -n "$win_exe" ] && [ -n "$win_sig" ]; then
-            sig=$(curl -sL "$(asset_url "$win_sig")")
+          if [ -n "$win_exe" ] && [ -n "$win_sig_name" ]; then
+            sig=$(download_sig "$win_sig_name")
+            url=$(asset_url "$win_exe")
             platforms_json=$(echo "$platforms_json" | jq \
-              --arg sig "$sig" --arg url "$(asset_url "$win_exe")" \
+              --arg sig "$sig" --arg url "$url" \
               '. + {"windows-x86_64": {"signature": $sig, "url": $url}}')
           fi
-          if [ -n "$mac_tar" ] && [ -n "$mac_sig" ]; then
-            sig=$(curl -sL "$(asset_url "$mac_sig")")
+          if [ -n "$mac_tar" ] && [ -n "$mac_sig_name" ]; then
+            sig=$(download_sig "$mac_sig_name")
+            url=$(asset_url "$mac_tar")
             platforms_json=$(echo "$platforms_json" | jq \
-              --arg sig "$sig" --arg url "$(asset_url "$mac_tar")" \
+              --arg sig "$sig" --arg url "$url" \
               '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
           fi
-          if [ -n "$linux_app" ] && [ -n "$linux_sig" ]; then
-            sig=$(curl -sL "$(asset_url "$linux_sig")")
+          if [ -n "$linux_app" ] && [ -n "$linux_sig_name" ]; then
+            sig=$(download_sig "$linux_sig_name")
+            url=$(asset_url "$linux_app")
             platforms_json=$(echo "$platforms_json" | jq \
-              --arg sig "$sig" --arg url "$(asset_url "$linux_app")" \
+              --arg sig "$sig" --arg url "$url" \
               '. + {"linux-x86_64": {"signature": $sig, "url": $url}}')
           fi
 
@@ -170,7 +186,7 @@ jobs:
             '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' \
             > latest.json
 
+          echo "=== latest.json ==="
           cat latest.json
 
-          # Upload latest.json as a release asset (update any existing one).
           gh release upload "$TAG" latest.json --clobber --repo "$REPO"
