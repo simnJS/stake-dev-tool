@@ -15,7 +15,7 @@ pub struct AppState {
     pub sessions: Arc<SessionStore>,
     pub engine: Arc<MathEngine>,
     /// When set, `/play` calls with matching `mode` bypass the RNG and return
-    /// this exact event. Cleared explicitly via admin endpoint.
+    /// this exact event. Cleared via the `/api/devtool/force-event` endpoint.
     pub forced_event: Mutex<Option<ForcedEvent>>,
 }
 

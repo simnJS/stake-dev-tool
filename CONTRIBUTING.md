@@ -57,7 +57,8 @@ crates/
 │                     # Self-contained — no desktop deps.
 │                     #   • config.rs   — env-driven ServerConfig
 │                     #   • routes.rs   — RGS /api/rgs/… endpoints
-│                     #   • admin.rs    — admin endpoints (sessions, settings)
+│                     #   • devtool.rs  — test-view tooling endpoints
+│                     #   • replay.rs   — Stake Engine /bet/replay/… endpoint
 │                     #   • math_engine — weighted RNG, zstd books indexing
 │                     #   • session     — DashMap-backed session store
 │                     #   • tls         — local CA + leaf cert (rcgen)

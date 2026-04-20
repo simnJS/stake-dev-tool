@@ -183,14 +183,23 @@ protocol) so iframes load from a real-browser context with full WebGL support.
 - `POST /api/rgs/<game>/wallet/end-round`
 - `POST /api/rgs/<game>/bet/event`
 
-**Admin** (used by the test view + desktop app):
+**Devtool** (used by the test view + desktop app — no auth, just tooling):
 
-- `GET  /api/admin/status`
-- `POST /api/admin/sessions/prepare`
-- `GET  /api/admin/settings`
-- `POST /api/admin/settings/toggle`
-- `POST /api/admin/settings/custom`
-- `DELETE /api/admin/settings/custom/:id`
+- `GET    /api/devtool/status`
+- `POST   /api/devtool/sessions/prepare`
+- `GET    /api/devtool/sessions/:sid/last-event`
+- `GET    /api/devtool/sessions/:sid/events`
+- `GET    /api/devtool/settings`
+- `POST   /api/devtool/settings/toggle`
+- `POST   /api/devtool/settings/custom`
+- `DELETE /api/devtool/settings/custom/:id`
+- `GET    /api/devtool/force-event`
+- `POST   /api/devtool/force-event`
+- `DELETE /api/devtool/force-event`
+
+**Replay** (Stake Engine canonical contract):
+
+- `GET /bet/replay/:game/:version/:mode/:event`
 
 ## Environment variables
 

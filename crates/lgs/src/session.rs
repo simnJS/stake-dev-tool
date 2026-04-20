@@ -38,7 +38,9 @@ impl SessionStore {
         )
     }
 
-    /// Insert or replace a session with the given init params (admin-style).
+    /// Insert or replace a session with the given init params. Called from
+    /// the devtool's `/sessions/prepare` endpoint so the test view can stage
+    /// balance/currency/language before the game calls `/authenticate`.
     pub fn upsert(&self, session_id: &str, init: SessionInit) -> Session {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
