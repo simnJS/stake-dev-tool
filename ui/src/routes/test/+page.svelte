@@ -59,6 +59,7 @@
   let allResolutions = $state<ResolutionPreset[]>([]);
   let frames = $state<FrameState[]>([]);
   let showManage = $state(false);
+  let showReplay = $state(false);
   let newCustomLabel = $state('');
   let newCustomWidth = $state(800);
   let newCustomHeight = $state(450);
@@ -449,390 +450,437 @@
 
 <div class="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
   <!-- Sidebar -->
-  <aside class="flex w-96 flex-shrink-0 flex-col border-r border-zinc-800/60 bg-zinc-900/40 p-5">
-    <div class="mb-4">
+  <aside class="flex h-screen w-96 flex-shrink-0 flex-col border-r border-zinc-800/60 bg-zinc-900/40">
+    <!-- Header -->
+    <div class="flex-shrink-0 border-b border-zinc-800/60 px-5 py-4">
       <div class="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Game</div>
       <div class="mt-0.5 truncate text-sm font-semibold text-zinc-100">{gameSlug || '—'}</div>
     </div>
 
-    <div class="mb-4 space-y-3">
-      <div>
-        <label for="initial-balance" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-          Initial balance
-        </label>
-        <div class="flex gap-1.5">
-          <input
-            id="initial-balance"
-            name="initial-balance"
-            type="number"
-            bind:value={balance}
-            min="0"
-            step="100"
-            class="flex-1 rounded-md border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 font-mono text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-          />
-          <div class="w-36 flex-shrink-0">
-            <Picker
-              items={availableCurrencies}
-              value={currency}
-              onSelect={(c) => (currency = c)}
-            />
-          </div>
+    <!-- Scrollable sections -->
+    <div class="flex-1 overflow-y-auto px-5 py-4">
+      <!-- ========== SESSION ========== -->
+      <section class="mb-5">
+        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          Session
         </div>
-      </div>
 
-      <div class="grid grid-cols-2 gap-2">
-        <div>
-          <div class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-            Lang
-          </div>
-          <Picker items={LANGUAGES} value={language} onSelect={(l) => (language = l)} />
-        </div>
-        <div>
-          <label for="device-select" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-            Device
-          </label>
-          <select
-            id="device-select"
-            name="device-select"
-            bind:value={device}
-            class="w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1.5 font-mono text-xs focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-          >
-            <option value="desktop">desktop</option>
-            <option value="mobile">mobile</option>
-          </select>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onclick={toggleSocial}
-        class="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border bg-zinc-950/40 px-2.5 py-1.5 text-xs transition {social
-          ? 'border-amber-700/60 text-amber-300 hover:bg-amber-950/30'
-          : 'border-zinc-800 text-zinc-300 hover:bg-zinc-800/60'}"
-      >
-        <span class="flex items-center gap-2">
-          <span class="text-xs">{social ? '🎰' : '💵'}</span>
-          Social casino
-        </span>
-        <span
-          class="rounded-full px-2 py-0.5 text-[10px] font-semibold {social
-            ? 'bg-amber-500/20 text-amber-300'
-            : 'bg-zinc-800 text-zinc-400'}"
-        >
-          {social ? 'ON' : 'OFF'}
-        </span>
-      </button>
-    </div>
-
-    <button
-      onclick={reloadAll}
-      disabled={busy}
-      class="mb-2 flex items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-3m2 8a8 8 0 01-14 3" />
-      </svg>
-      Apply &amp; reload all
-    </button>
-
-    <div class="mb-2 grid grid-cols-2 gap-1.5">
-      <button
-        onclick={muteAll}
-        class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
-      >
-        Mute all
-      </button>
-      <button
-        onclick={unmuteAll}
-        class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
-      >
-        Unmute all
-      </button>
-    </div>
-
-    <button
-      onclick={() => (showManage = !showManage)}
-      class="mb-2 flex items-center justify-between gap-2 rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
-    >
-      <span class="flex items-center gap-2">
-        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
-        </svg>
-        Manage resolutions ({allResolutions.filter((r) => r.enabled).length}/{allResolutions.length})
-      </span>
-      <svg
-        class="h-3 w-3 text-zinc-500 transition {showManage ? 'rotate-180' : ''}"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        viewBox="0 0 24 24"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-      </svg>
-    </button>
-
-    <!-- Force event -->
-    <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
-      <div class="mb-1 flex items-center justify-between">
-        <span class="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-          Force next event
-        </span>
-        {#if forcedEventBanner}
-          <button
-            onclick={clearForcedEvent}
-            disabled={busy}
-            class="text-[10px] text-amber-400 hover:text-amber-300"
-          >
-            Clear
-          </button>
-        {/if}
-      </div>
-      <div class="flex gap-1.5">
-        <select
-          bind:value={forcedMode}
-          class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-        >
-          {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
-            <option value={m}>{m}</option>
-          {/each}
-        </select>
-        <input
-          type="number"
-          bind:value={forcedEventId}
-          min="1"
-          placeholder="eventId"
-          class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-        />
-        <button
-          onclick={applyForcedEvent}
-          disabled={busy}
-          class="rounded bg-amber-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-amber-400 disabled:opacity-40"
-        >
-          Force
-        </button>
-        <button
-          onclick={() => (showSaveInput = !showSaveInput)}
-          disabled={forcedEventId === null || forcedEventId <= 0}
-          title="Save this round for later"
-          class="rounded border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
-        >
-          ★
-        </button>
-      </div>
-      {#if showSaveInput}
-        <div class="mt-1.5 flex gap-1.5">
-          <input
-            type="text"
-            bind:value={saveDescription}
-            placeholder="Description (optional)"
-            maxlength="120"
-            onkeydown={(e) => e.key === 'Enter' && saveCurrentRound()}
-            class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[11px] focus:border-emerald-500/40 focus:outline-none"
-          />
-          <button
-            onclick={saveCurrentRound}
-            disabled={savingRound}
-            class="rounded bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
-          >
-            Save
-          </button>
-        </div>
-      {/if}
-      {#if forcedEventBanner}
-        <div class="mt-1.5 rounded bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
-          Active: <span class="font-mono">{forcedEventBanner.mode} #{forcedEventBanner.eventId}</span>
-        </div>
-      {/if}
-    </div>
-
-    <!-- Saved rounds -->
-    <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
-      <button
-        onclick={() => (showSavedRounds = !showSavedRounds)}
-        class="flex w-full items-center justify-between gap-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500 transition hover:text-zinc-300"
-      >
-        <span>Saved rounds ({savedRounds.length})</span>
-        <svg
-          class="h-3 w-3 transition {showSavedRounds ? 'rotate-180' : ''}"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          viewBox="0 0 24 24"
-        >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {#if showSavedRounds}
-        {#if savedRounds.length === 0}
-          <div class="mt-1.5 text-[10px] text-zinc-600">
-            No saved rounds yet. Enter a mode + event id above and click ★ to bookmark.
-          </div>
-        {:else}
-          <div class="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
-            {#each savedRounds as r (r.id)}
-              <div class="group flex items-center gap-1.5 rounded px-1.5 py-1 transition hover:bg-zinc-800/40">
-                <button
-                  onclick={() => applySavedRound(r)}
-                  disabled={busy}
-                  title="Force this round"
-                  class="flex min-w-0 flex-1 flex-col items-start text-left"
-                >
-                  <span class="flex w-full items-baseline gap-1.5">
-                    <span class="font-mono text-[11px] text-sky-300">{r.mode}</span>
-                    <span class="font-mono text-[11px] font-semibold text-zinc-100">#{r.eventId}</span>
-                  </span>
-                  {#if r.description}
-                    <span class="truncate w-full text-[10px] text-zinc-400">{r.description}</span>
-                  {/if}
-                </button>
-                <button
-                  onclick={() => deleteSavedRound(r)}
-                  title="Delete"
-                  class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
-                >
-                  <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {/if}
-    </div>
-
-    <!-- Replay -->
-    <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
-      <div class="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-        Replay event
-      </div>
-      <div class="flex gap-1.5">
-        <select
-          bind:value={replayMode}
-          class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-        >
-          {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
-            <option value={m}>{m}</option>
-          {/each}
-        </select>
-        <input
-          type="number"
-          bind:value={replayEventId}
-          min="1"
-          placeholder="eventId"
-          class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-        />
-        <button
-          onclick={() => frames[0] && launchReplay(frames[0])}
-          disabled={busy || frames.length === 0}
-          title="Load replay in the first frame"
-          class="rounded bg-sky-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-sky-400 disabled:opacity-40"
-        >
-          Load
-        </button>
-      </div>
-      <div class="mt-1 text-[10px] text-zinc-600">
-        Loads into the top-left frame. No session, no RNG — just the event outcome.
-      </div>
-    </div>
-
-    {#if showManage}
-      <div class="mb-2 max-h-80 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
-        <div class="mb-2 space-y-1">
-          {#each allResolutions as r (r.id)}
-            <div
-              class="group flex items-center gap-2 rounded px-1.5 py-1 transition hover:bg-zinc-800/40"
-            >
+        <div class="space-y-3">
+          <div>
+            <label for="initial-balance" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              Initial balance
+            </label>
+            <div class="flex gap-1.5">
               <input
-                id="res-{r.id}"
-                name="res-{r.id}"
-                type="checkbox"
-                checked={r.enabled}
-                onchange={(e) => toggleResolution(r.id, (e.currentTarget as HTMLInputElement).checked)}
-                disabled={busy}
-                class="accent-emerald-500"
+                id="initial-balance"
+                name="initial-balance"
+                type="number"
+                bind:value={balance}
+                min="0"
+                step="100"
+                class="flex-1 rounded-md border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 font-mono text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               />
-              <label for="res-{r.id}" class="flex-1 cursor-pointer text-xs">
-                <span class="text-zinc-100">{r.label}</span>
-                <span class="ml-1.5 font-mono text-[10px] text-zinc-500">{r.width}×{r.height}</span>
-                {#if !r.builtin}
-                  <span
-                    class="ml-1 rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-300"
-                    >custom</span
-                  >
-                {/if}
+              <div class="w-36 flex-shrink-0">
+                <Picker
+                  items={availableCurrencies}
+                  value={currency}
+                  onSelect={(c) => (currency = c)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <div class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Lang
+              </div>
+              <Picker items={LANGUAGES} value={language} onSelect={(l) => (language = l)} />
+            </div>
+            <div>
+              <label for="device-select" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                Device
               </label>
-              {#if !r.builtin}
-                <button
-                  onclick={() => deleteCustomResolution(r.id)}
-                  disabled={busy}
-                  title="Delete custom resolution"
-                  class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
-                >
-                  <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              <select
+                id="device-select"
+                name="device-select"
+                bind:value={device}
+                class="w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1.5 font-mono text-xs focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              >
+                <option value="desktop">desktop</option>
+                <option value="mobile">mobile</option>
+              </select>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onclick={toggleSocial}
+            class="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border bg-zinc-950/40 px-2.5 py-1.5 text-xs transition {social
+              ? 'border-amber-700/60 text-amber-300 hover:bg-amber-950/30'
+              : 'border-zinc-800 text-zinc-300 hover:bg-zinc-800/60'}"
+          >
+            <span class="flex items-center gap-2">
+              <span class="text-xs">{social ? '🎰' : '💵'}</span>
+              Social casino
+            </span>
+            <span
+              class="rounded-full px-2 py-0.5 text-[10px] font-semibold {social
+                ? 'bg-amber-500/20 text-amber-300'
+                : 'bg-zinc-800 text-zinc-400'}"
+            >
+              {social ? 'ON' : 'OFF'}
+            </span>
+          </button>
+
+          <button
+            onclick={reloadAll}
+            disabled={busy}
+            class="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-3m2 8a8 8 0 01-14 3" />
+            </svg>
+            Apply &amp; reload all
+          </button>
+
+          <div class="grid grid-cols-2 gap-1.5">
+            <button
+              onclick={muteAll}
+              class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
+            >
+              Mute all
+            </button>
+            <button
+              onclick={unmuteAll}
+              class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
+            >
+              Unmute all
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== EVENTS ========== -->
+      <section class="mb-5">
+        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          Events
+        </div>
+
+        <!-- Force event -->
+        <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
+          <div class="mb-1 flex items-center justify-between">
+            <span class="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              Force next event
+            </span>
+            {#if forcedEventBanner}
+              <button
+                onclick={clearForcedEvent}
+                disabled={busy}
+                class="text-[10px] text-amber-400 hover:text-amber-300"
+              >
+                Clear
+              </button>
+            {/if}
+          </div>
+          <div class="flex gap-1.5">
+            <select
+              bind:value={forcedMode}
+              class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+            >
+              {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
+                <option value={m}>{m}</option>
+              {/each}
+            </select>
+            <input
+              type="number"
+              bind:value={forcedEventId}
+              min="1"
+              placeholder="eventId"
+              class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+            />
+            <button
+              onclick={applyForcedEvent}
+              disabled={busy}
+              class="rounded bg-amber-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-amber-400 disabled:opacity-40"
+            >
+              Force
+            </button>
+            <button
+              onclick={() => (showSaveInput = !showSaveInput)}
+              disabled={forcedEventId === null || forcedEventId <= 0}
+              title="Save this round for later"
+              class="rounded border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
+            >
+              ★
+            </button>
+          </div>
+          {#if showSaveInput}
+            <div class="mt-1.5 flex gap-1.5">
+              <input
+                type="text"
+                bind:value={saveDescription}
+                placeholder="Description (optional)"
+                maxlength="120"
+                onkeydown={(e) => e.key === 'Enter' && saveCurrentRound()}
+                class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[11px] focus:border-emerald-500/40 focus:outline-none"
+              />
+              <button
+                onclick={saveCurrentRound}
+                disabled={savingRound}
+                class="rounded bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+              >
+                Save
+              </button>
+            </div>
+          {/if}
+          {#if forcedEventBanner}
+            <div class="mt-1.5 rounded bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
+              Active: <span class="font-mono">{forcedEventBanner.mode} #{forcedEventBanner.eventId}</span>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Saved rounds -->
+        <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40">
+          <button
+            onclick={() => (showSavedRounds = !showSavedRounds)}
+            class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:text-zinc-200"
+          >
+            <span>Saved rounds ({savedRounds.length})</span>
+            <svg
+              class="h-3 w-3 transition {showSavedRounds ? 'rotate-180' : ''}"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {#if showSavedRounds}
+            <div class="border-t border-zinc-800/60 p-2">
+              {#if savedRounds.length === 0}
+                <div class="text-[10px] text-zinc-600">
+                  No saved rounds yet. Enter a mode + event id above and click ★ to bookmark.
+                </div>
+              {:else}
+                <div class="max-h-56 space-y-1 overflow-y-auto">
+                  {#each savedRounds as r (r.id)}
+                    <div class="group flex items-center gap-1.5 rounded px-1.5 py-1 transition hover:bg-zinc-800/40">
+                      <button
+                        onclick={() => applySavedRound(r)}
+                        disabled={busy}
+                        title="Force this round"
+                        class="flex min-w-0 flex-1 flex-col items-start text-left"
+                      >
+                        <span class="flex w-full items-baseline gap-1.5">
+                          <span class="font-mono text-[11px] text-sky-300">{r.mode}</span>
+                          <span class="font-mono text-[11px] font-semibold text-zinc-100">#{r.eventId}</span>
+                        </span>
+                        {#if r.description}
+                          <span class="w-full truncate text-[10px] text-zinc-400">{r.description}</span>
+                        {/if}
+                      </button>
+                      <button
+                        onclick={() => deleteSavedRound(r)}
+                        title="Delete"
+                        class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
+                      >
+                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                </div>
               {/if}
             </div>
-          {/each}
+          {/if}
         </div>
 
-        <div class="border-t border-zinc-800 pt-2">
-          <div class="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-            Add custom
-          </div>
-          <input
-            type="text"
-            bind:value={newCustomLabel}
-            placeholder="Label (e.g. iPad)"
-            class="mb-1.5 w-full rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-xs focus:border-emerald-500/40 focus:outline-none"
-          />
-          <div class="mb-1.5 grid grid-cols-2 gap-1.5">
-            <input
-              type="number"
-              bind:value={newCustomWidth}
-              min="1"
-              max="4096"
-              placeholder="Width"
-              class="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-xs focus:border-emerald-500/40 focus:outline-none"
-            />
-            <input
-              type="number"
-              bind:value={newCustomHeight}
-              min="1"
-              max="4096"
-              placeholder="Height"
-              class="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-xs focus:border-emerald-500/40 focus:outline-none"
-            />
-          </div>
+        <!-- Replay -->
+        <div class="rounded-md border border-zinc-800 bg-zinc-950/40">
           <button
-            onclick={addCustomResolution}
-            disabled={busy || !newCustomLabel.trim()}
-            class="w-full rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+            onclick={() => (showReplay = !showReplay)}
+            class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:text-zinc-200"
           >
-            + Add
+            <span>Replay event</span>
+            <svg
+              class="h-3 w-3 transition {showReplay ? 'rotate-180' : ''}"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
+          {#if showReplay}
+            <div class="border-t border-zinc-800/60 p-2">
+              <div class="flex gap-1.5">
+                <select
+                  bind:value={replayMode}
+                  class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+                >
+                  {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </select>
+                <input
+                  type="number"
+                  bind:value={replayEventId}
+                  min="1"
+                  placeholder="eventId"
+                  class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
+                />
+                <button
+                  onclick={() => frames[0] && launchReplay(frames[0])}
+                  disabled={busy || frames.length === 0}
+                  title="Load replay in the first frame"
+                  class="rounded bg-sky-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-sky-400 disabled:opacity-40"
+                >
+                  Load
+                </button>
+              </div>
+              <div class="mt-1 text-[10px] text-zinc-600">
+                Loads into the top-left frame. No session, no RNG — just the event outcome.
+              </div>
+            </div>
+          {/if}
         </div>
+      </section>
+
+      <!-- ========== LAYOUT ========== -->
+      <section>
+        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          Layout
+        </div>
+
+        <div class="rounded-md border border-zinc-800 bg-zinc-950/40">
+          <button
+            onclick={() => (showManage = !showManage)}
+            class="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:text-zinc-100"
+          >
+            <span class="flex items-center gap-2">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+              </svg>
+              Resolutions ({allResolutions.filter((r) => r.enabled).length}/{allResolutions.length})
+            </span>
+            <svg
+              class="h-3 w-3 text-zinc-500 transition {showManage ? 'rotate-180' : ''}"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {#if showManage}
+            <div class="border-t border-zinc-800/60 p-2">
+              <div class="mb-2 max-h-64 space-y-1 overflow-y-auto">
+                {#each allResolutions as r (r.id)}
+                  <div
+                    class="group flex items-center gap-2 rounded px-1.5 py-1 transition hover:bg-zinc-800/40"
+                  >
+                    <input
+                      id="res-{r.id}"
+                      name="res-{r.id}"
+                      type="checkbox"
+                      checked={r.enabled}
+                      onchange={(e) => toggleResolution(r.id, (e.currentTarget as HTMLInputElement).checked)}
+                      disabled={busy}
+                      class="accent-emerald-500"
+                    />
+                    <label for="res-{r.id}" class="flex-1 cursor-pointer text-xs">
+                      <span class="text-zinc-100">{r.label}</span>
+                      <span class="ml-1.5 font-mono text-[10px] text-zinc-500">{r.width}×{r.height}</span>
+                      {#if !r.builtin}
+                        <span
+                          class="ml-1 rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-300"
+                          >custom</span
+                        >
+                      {/if}
+                    </label>
+                    {#if !r.builtin}
+                      <button
+                        onclick={() => deleteCustomResolution(r.id)}
+                        disabled={busy}
+                        title="Delete custom resolution"
+                        class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
+                      >
+                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+
+              <div class="border-t border-zinc-800 pt-2">
+                <div class="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  Add custom
+                </div>
+                <input
+                  type="text"
+                  bind:value={newCustomLabel}
+                  placeholder="Label (e.g. iPad)"
+                  class="mb-1.5 w-full rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-xs focus:border-emerald-500/40 focus:outline-none"
+                />
+                <div class="mb-1.5 grid grid-cols-2 gap-1.5">
+                  <input
+                    type="number"
+                    bind:value={newCustomWidth}
+                    min="1"
+                    max="4096"
+                    placeholder="Width"
+                    class="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-xs focus:border-emerald-500/40 focus:outline-none"
+                  />
+                  <input
+                    type="number"
+                    bind:value={newCustomHeight}
+                    min="1"
+                    max="4096"
+                    placeholder="Height"
+                    class="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-xs focus:border-emerald-500/40 focus:outline-none"
+                  />
+                </div>
+                <button
+                  onclick={addCustomResolution}
+                  disabled={busy || !newCustomLabel.trim()}
+                  class="w-full rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+                >
+                  + Add
+                </button>
+              </div>
+            </div>
+          {/if}
+        </div>
+      </section>
+    </div>
+
+    <!-- Footer: messages -->
+    {#if info || error}
+      <div class="flex-shrink-0 space-y-2 border-t border-zinc-800/60 px-5 py-3">
+        {#if info}
+          <div
+            class="rounded-md border border-emerald-900/40 bg-emerald-950/30 px-2.5 py-1.5 text-[11px] text-emerald-300"
+          >
+            {info}
+          </div>
+        {/if}
+        {#if error}
+          <div
+            class="rounded-md border border-red-900/40 bg-red-950/30 px-2.5 py-1.5 text-[11px] text-red-300"
+          >
+            {error}
+          </div>
+        {/if}
       </div>
     {/if}
-
-    <div class="mt-auto space-y-2">
-      {#if info}
-        <div
-          class="rounded-md border border-emerald-900/40 bg-emerald-950/30 px-2.5 py-1.5 text-[11px] text-emerald-300"
-        >
-          {info}
-        </div>
-      {/if}
-      {#if error}
-        <div
-          class="rounded-md border border-red-900/40 bg-red-950/30 px-2.5 py-1.5 text-[11px] text-red-300"
-        >
-          {error}
-        </div>
-      {/if}
-    </div>
   </aside>
 
   <!-- Frames area -->
