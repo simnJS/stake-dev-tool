@@ -131,7 +131,7 @@ pub async fn replace_all(resolutions: Vec<ResolutionPreset>) -> Result<Settings>
 pub async fn delete_custom(id: &str) -> Result<Settings> {
     let mut s = load().await?;
     let before = s.resolutions.len();
-    s.resolutions.retain(|r| !(r.id == id && !r.builtin));
+    s.resolutions.retain(|r| r.id != id || r.builtin);
     if s.resolutions.len() == before {
         return Err(anyhow!(
             "custom resolution not found (cannot delete builtins)"

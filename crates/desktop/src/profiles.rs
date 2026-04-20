@@ -87,18 +87,19 @@ pub async fn upsert(
     let mut f = load().await?;
     let now = now_ms();
 
-    if let Some(id) = id {
-        if let Some(p) = f.profiles.iter_mut().find(|p| p.id == id) {
-            p.name = name;
-            p.game_path = game_path;
-            p.game_url = game_url;
-            p.game_slug = game_slug;
-            p.resolutions = resolutions;
-            p.updated_at = now;
-            let updated = p.clone();
-            save(&f).await?;
-            return Ok(updated);
-        }
+    let existing = id
+        .as_ref()
+        .and_then(|id| f.profiles.iter_mut().find(|p| &p.id == id));
+    if let Some(p) = existing {
+        p.name = name;
+        p.game_path = game_path;
+        p.game_url = game_url;
+        p.game_slug = game_slug;
+        p.resolutions = resolutions;
+        p.updated_at = now;
+        let updated = p.clone();
+        save(&f).await?;
+        return Ok(updated);
     }
 
     let new = Profile {

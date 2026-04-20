@@ -10,13 +10,12 @@ fn resolve_ui_dir() -> Option<PathBuf> {
         }
     }
     // 2) next to the binary (production: bundled as `ui-build/`)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.join("ui-build");
-            if candidate.exists() {
-                return Some(candidate);
-            }
-        }
+    let exe_candidate = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join("ui-build")))
+        .filter(|p| p.exists());
+    if exe_candidate.is_some() {
+        return exe_candidate;
     }
     // 3) dev path: ../../ui/build relative to crate manifest
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -521,15 +520,17 @@ fn find_chromium_browser() -> Option<PathBuf> {
 
     // Fallback: try PATH
     for name in &["chrome", "google-chrome", "chromium", "msedge", "brave"] {
-        if let Ok(out) = std::process::Command::new("where").arg(name).output() {
-            if out.status.success() {
-                let s = String::from_utf8_lossy(&out.stdout);
-                if let Some(line) = s.lines().next() {
-                    let p = PathBuf::from(line.trim());
-                    if p.exists() {
-                        return Some(p);
-                    }
-                }
+        let Ok(out) = std::process::Command::new("where").arg(name).output() else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        let s = String::from_utf8_lossy(&out.stdout);
+        if let Some(line) = s.lines().next() {
+            let p = PathBuf::from(line.trim());
+            if p.exists() {
+                return Some(p);
             }
         }
     }
