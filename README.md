@@ -41,11 +41,13 @@ infrastructure.
 Grab the latest installer for your platform from the
 [Releases page](https://github.com/simnJS/stake-dev-tool/releases).
 
-- **Windows 10/11 (x86_64)** — `Stake-Dev-Tool_x.y.z_x64_en-US.msi` or
-  `Stake-Dev-Tool_x.y.z_x64-setup.exe`
-- **macOS — Apple Silicon (M1/M2/M3/…)** — `Stake-Dev-Tool_x.y.z_aarch64.dmg`.
-  Intel Macs are not supported; if that's a blocker, open an issue.
-- **Linux (x86_64)** — `stake-dev-tool_x.y.z_amd64.AppImage` or `.deb`
+- **Windows 10/11 (x86_64)** — `Stake-Dev-Tool-vX.Y.Z-windows-x64.exe`
+  (NSIS installer)
+- **macOS — Apple Silicon (M1/M2/M3/…)** — `Stake-Dev-Tool-vX.Y.Z-macos-arm64.app.tar.gz`
+  (extract → drag `Stake Dev Tool.app` into `/Applications`). Intel Macs are
+  not supported; if that's a blocker, open an issue.
+- **Linux (x86_64)** — `Stake-Dev-Tool-vX.Y.Z-linux-x64.AppImage`
+  (`chmod +x` then run)
 
 Run the installer, launch **Stake Dev Tool** from the Start menu.
 
@@ -79,8 +81,9 @@ pnpm tauri:build
 Artifacts land under `target/release/`:
 
 - `stake-dev-tool.exe` — portable binary
-- `bundle/msi/Stake-Dev-Tool_x.y.z_x64_en-US.msi` — Windows installer
-- `bundle/nsis/Stake-Dev-Tool_x.y.z_x64-setup.exe` — NSIS installer
+- `bundle/nsis/Stake Dev Tool_x.y.z_x64-setup.exe` — Windows NSIS installer
+  (renamed to `Stake-Dev-Tool-vX.Y.Z-windows-x64.exe` when published via the
+  release workflow)
 
 ## Quick start
 
