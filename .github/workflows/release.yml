@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -18,7 +22,7 @@ jobs:
             rust-targets: 'x86_64-pc-windows-msvc'
             tauri-args: ''
           - platform: 'macos-latest'
-            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin x86_64-apple-darwin'
             tauri-args: '--target universal-apple-darwin'
           - platform: 'ubuntu-latest'
             rust-targets: 'x86_64-unknown-linux-gnu'
@@ -41,11 +45,18 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
+      - name: Setup Rust (stable + targets)
+        shell: bash
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup target add ${{ matrix.rust-targets }}
+          rustc --version
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          key: ${{ matrix.platform }}
 
       - uses: pnpm/action-setup@v4
         with:
