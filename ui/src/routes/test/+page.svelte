@@ -10,6 +10,7 @@
     forcedEventHttp,
     savedRoundsHttp,
     betStatsHttp,
+    gameModesHttp,
     replayUrl,
     type ResolutionPreset,
     type EventEntry,
@@ -82,6 +83,13 @@
       };
     });
   }
+
+  // ---- Modes (from the game's index.json, loaded on mount) ----
+
+  // Falls back to ['base'] while loading so the dropdowns are never empty. Once
+  // the modes endpoint responds with the real list we overwrite it and snap
+  // forcedMode/replayMode onto a valid entry.
+  let availableModes = $state<string[]>(['base']);
 
   // ---- Force event + last event + replay ----
 
@@ -414,12 +422,30 @@
       const f = await forcedEventHttp.get();
       forcedEventBanner = f.forced;
       await reloadSavedRounds();
+      await loadGameModes();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       return;
     }
     await reloadAll();
   });
+
+  /** Read the mode list from the game's index.json (via LGS) and align the
+   *  current forcedMode / replayMode with what the game actually exposes.
+   *  Failure keeps the fallback ['base']; dropdowns still render. */
+  async function loadGameModes() {
+    if (!gameSlug) return;
+    try {
+      const modes = await gameModesHttp.get(gameSlug);
+      if (modes.length === 0) return;
+      availableModes = modes;
+      if (!modes.includes(forcedMode)) forcedMode = modes[0];
+      if (!modes.includes(replayMode)) replayMode = modes[0];
+    } catch (e) {
+      // Non-fatal: the dropdowns stay on the ['base'] fallback.
+      console.warn('failed to load game modes:', e);
+    }
+  }
 
   // ---- Resolution management ----
 
@@ -731,7 +757,7 @@
               bind:value={forcedMode}
               class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
             >
-              {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
+              {#each availableModes as m (m)}
                 <option value={m}>{m}</option>
               {/each}
             </select>
@@ -952,7 +978,7 @@
                   bind:value={replayMode}
                   class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
                 >
-                  {#each ['base', 'baseante', 'bonus', 'bonus5', 'duel', 'duel5'] as m (m)}
+                  {#each availableModes as m (m)}
                     <option value={m}>{m}</option>
                   {/each}
                 </select>

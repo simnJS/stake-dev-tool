@@ -295,6 +295,15 @@ export const betStatsHttp = {
   }
 };
 
+export const gameModesHttp = {
+  get: async (gameSlug: string): Promise<string[]> => {
+    const r = await fetch(`/api/devtool/games/${encodeURIComponent(gameSlug)}/modes`);
+    if (!r.ok) throw new Error(`game modes: ${r.status}`);
+    const j = (await r.json()) as { modes: string[] };
+    return j.modes;
+  }
+};
+
 export function replayUrl(
   gameUrl: string,
   gameSlug: string,

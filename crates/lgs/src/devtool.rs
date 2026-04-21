@@ -50,6 +50,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             patch(update_saved_round).delete(delete_saved_round),
         )
         .route("/api/devtool/bet-stats/:game", get(get_bet_stats))
+        .route("/api/devtool/games/:game/modes", get(get_game_modes))
         .with_state(state)
 }
 
@@ -328,4 +329,20 @@ async fn get_bet_stats(
 ) -> AppResult<Json<BetStatsResponse>> {
     let modes = state.engine.game_bet_stats(&game).await?;
     Ok(Json(BetStatsResponse { modes }))
+}
+
+// ========== Mode list (for the test view dropdowns) ==========
+
+#[derive(Serialize)]
+pub struct GameModesResponse {
+    pub modes: Vec<String>,
+}
+
+async fn get_game_modes(
+    State(state): State<Arc<AppState>>,
+    Path(game): Path<String>,
+) -> AppResult<Json<GameModesResponse>> {
+    let cfg = state.engine.load_config(&game).await?;
+    let modes = cfg.modes.iter().map(|m| m.name.clone()).collect();
+    Ok(Json(GameModesResponse { modes }))
 }
