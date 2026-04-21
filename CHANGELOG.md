@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.4] — 2026-04-21
+
+### Fixed
+
+- **Mode dropdowns now read from `index.json`** instead of a hardcoded list
+  (`base` / `baseante` / `bonus` / `bonus5` / `duel` / `duel5`) — that list
+  was specific to one game and left every other user staring at options
+  their game didn't have. The test view's **Force event** and **Replay
+  event** selects now populate from `GET /api/devtool/games/:game/modes`,
+  which reads the current game's `index.json`. `forcedMode` / `replayMode`
+  snap to `modes[0]` on load if their default (`base`) isn't present.
+
 ## [0.3.3] — 2026-04-21
 
 ### Changed
