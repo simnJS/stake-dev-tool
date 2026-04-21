@@ -3,8 +3,10 @@ use crate::types::{EventEntry, Round, Session};
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::broadcast;
 
 const HISTORY_CAP: usize = 100;
+const EVENT_CHANNEL_CAP: usize = 64;
 
 pub struct SessionInit {
     pub game: String,
@@ -16,6 +18,7 @@ pub struct SessionInit {
 pub struct SessionStore {
     sessions: DashMap<String, Session>,
     bet_counter: AtomicU64,
+    event_channels: DashMap<String, broadcast::Sender<EventEntry>>,
 }
 
 impl SessionStore {
@@ -23,7 +26,18 @@ impl SessionStore {
         Self {
             sessions: DashMap::new(),
             bet_counter: AtomicU64::new(0),
+            event_channels: DashMap::new(),
         }
+    }
+
+    /// Subscribe to new events for the given session. Lazily creates the
+    /// broadcast channel on first subscribe. Multiple subscribers share the
+    /// same channel (Stream of each new pushed EventEntry).
+    pub fn subscribe_events(&self, session_id: &str) -> broadcast::Receiver<EventEntry> {
+        self.event_channels
+            .entry(session_id.to_string())
+            .or_insert_with(|| broadcast::channel(EVENT_CHANNEL_CAP).0)
+            .subscribe()
     }
 
     pub fn create(&self, session_id: &str, game: &str, language: Option<String>) -> Session {
@@ -78,14 +92,21 @@ impl SessionStore {
     }
 
     /// Push an event entry into the session's history (most-recent-first).
-    /// Capped at `HISTORY_CAP` — older entries are dropped.
+    /// Capped at `HISTORY_CAP` — older entries are dropped. Also broadcasts
+    /// the entry to any active SSE subscribers.
     pub fn push_event(&self, session_id: &str, entry: EventEntry) -> Option<Session> {
-        let mut s = self.sessions.get_mut(session_id)?;
-        s.event_history.insert(0, entry);
-        if s.event_history.len() > HISTORY_CAP {
-            s.event_history.truncate(HISTORY_CAP);
+        let session = {
+            let mut s = self.sessions.get_mut(session_id)?;
+            s.event_history.insert(0, entry.clone());
+            if s.event_history.len() > HISTORY_CAP {
+                s.event_history.truncate(HISTORY_CAP);
+            }
+            s.clone()
+        };
+        if let Some(tx) = self.event_channels.get(session_id) {
+            let _ = tx.send(entry);
         }
-        Some(s.clone())
+        Some(session)
     }
 
     /// Fetch existing session, or create with defaults. Used by authenticate

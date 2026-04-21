@@ -3,11 +3,17 @@ use crate::saved_rounds;
 use crate::session::SessionInit;
 use crate::settings;
 use crate::state::{AppState, ForcedEvent};
+use crate::types::EventEntry;
 use axum::extract::{Path, Query, State};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::{Stream, StreamExt};
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
@@ -34,6 +40,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/devtool/sessions/:sid/last-event", get(get_last_event))
         .route("/api/devtool/sessions/:sid/events", get(get_events_history))
+        .route("/api/devtool/sessions/:sid/stream", get(stream_events))
         .route(
             "/api/devtool/saved-rounds",
             get(list_saved_rounds).post(create_saved_round),
@@ -209,6 +216,41 @@ async fn get_events_history(
         count: s.event_history.len(),
         events: s.event_history,
     }))
+}
+
+/// SSE stream of new events for a session. On connect, emits a `snapshot`
+/// event containing the current history (most-recent-first), then an `event`
+/// for each subsequent push. Replaces per-frame polling of `/last-event` +
+/// `/events` at 1 Hz — one persistent connection per frame, zero traffic
+/// when no spin happens.
+async fn stream_events(
+    State(state): State<Arc<AppState>>,
+    Path(sid): Path<String>,
+) -> AppResult<Sse<impl Stream<Item = Result<Event, Infallible>>>> {
+    // Subscribe BEFORE reading the snapshot so any event pushed in the window
+    // between the two lands in the live stream; client de-dupes on `at`.
+    let rx = state.sessions.subscribe_events(&sid);
+    let session = state.sessions.get(&sid).ok_or(AppError::SessionNotFound)?;
+
+    let snapshot_json =
+        serde_json::to_string(&session.event_history).unwrap_or_else(|_| "[]".to_string());
+    let snapshot_event = Event::default().event("snapshot").data(snapshot_json);
+    let snapshot_stream = tokio_stream::once(Ok::<Event, Infallible>(snapshot_event));
+
+    let live_stream = BroadcastStream::new(rx).filter_map(|r| match r {
+        Ok(entry) => event_from_entry(&entry).map(Ok),
+        // BroadcastStreamRecvError::Lagged: subscriber fell behind. Skip.
+        Err(_) => None,
+    });
+
+    let combined = snapshot_stream.chain(live_stream);
+    Ok(Sse::new(combined).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+fn event_from_entry(entry: &EventEntry) -> Option<Event> {
+    serde_json::to_string(entry)
+        .ok()
+        .map(|j| Event::default().event("event").data(j))
 }
 
 // ========== Saved rounds ==========

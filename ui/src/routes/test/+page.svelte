@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { page } from '$app/state';
   import Picker from '$lib/Picker.svelte';
   import {
@@ -8,13 +8,10 @@
     API_MULTIPLIER,
     settingsHttp,
     forcedEventHttp,
-    lastEventHttp,
-    historyHttp,
     savedRoundsHttp,
     betStatsHttp,
     replayUrl,
     type ResolutionPreset,
-    type LastEvent,
     type EventEntry,
     type SavedRound,
     type ModeBetStats
@@ -31,7 +28,6 @@
     sessionId: string;
     src: string | null;
     muted: boolean;
-    lastEvent: LastEvent | null;
     history: EventEntry[];
     showHistory: boolean;
   };
@@ -81,7 +77,6 @@
         sessionId: crypto.randomUUID(),
         src: null,
         muted: true,
-        lastEvent: null,
         history: [],
         showHistory: false
       };
@@ -330,24 +325,57 @@
     setTimeout(() => (info = null), 2500);
   }
 
-  // Poll last event + full history per frame every second.
+  // One persistent SSE connection per frame (keyed by sessionId). The server
+  // emits a `snapshot` event on connect (full current history) then pushes
+  // each new event as it happens. No polling, no wasted requests.
+  const eventSources = new Map<string, EventSource>();
+  const HISTORY_CAP = 100;
+
   $effect(() => {
-    const interval = setInterval(async () => {
-      for (const f of frames) {
-        if (!f.src) continue;
+    const activeSids = new Set(frames.map((f) => f.sessionId));
+
+    for (const f of frames) {
+      if (eventSources.has(f.sessionId)) continue;
+      const frame = f;
+      const es = new EventSource(
+        `/api/devtool/sessions/${encodeURIComponent(frame.sessionId)}/stream`
+      );
+      es.addEventListener('snapshot', (ev) => {
         try {
-          const [le, h] = await Promise.all([
-            lastEventHttp.get(f.sessionId),
-            historyHttp.get(f.sessionId)
-          ]);
-          f.lastEvent = le;
-          f.history = h.events;
+          frame.history = JSON.parse((ev as MessageEvent).data) as EventEntry[];
         } catch {
-          // session might not exist yet if frame just reloaded; ignore.
+          // ignore malformed snapshot
         }
+      });
+      es.addEventListener('event', (ev) => {
+        try {
+          const entry = JSON.parse((ev as MessageEvent).data) as EventEntry;
+          // De-dup: server sends the snapshot then subscribes, so an entry
+          // pushed in that window can arrive via both paths. Skip if head
+          // already matches.
+          const head = frame.history[0];
+          if (head && head.at === entry.at && head.eventId === entry.eventId) return;
+          const next = [entry, ...frame.history];
+          if (next.length > HISTORY_CAP) next.length = HISTORY_CAP;
+          frame.history = next;
+        } catch {
+          // ignore malformed event
+        }
+      });
+      eventSources.set(frame.sessionId, es);
+    }
+
+    for (const [sid, es] of eventSources) {
+      if (!activeSids.has(sid)) {
+        es.close();
+        eventSources.delete(sid);
       }
-    }, 1000);
-    return () => clearInterval(interval);
+    }
+  });
+
+  onDestroy(() => {
+    for (const es of eventSources.values()) es.close();
+    eventSources.clear();
   });
 
   function formatRelative(ms: number): string {
@@ -1143,22 +1171,19 @@
             class="mb-1 flex items-center gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1.5"
             style="width: {frame.res.width}px;"
           >
-            {#if frame.lastEvent?.eventId != null}
-              {@const lm = (frame.lastEvent.payoutMultiplier ?? 0) / 100}
+            {#if frame.history[0]}
+              {@const last = frame.history[0]}
+              {@const lm = last.payoutMultiplier / 100}
               {@const hit = lm > 0}
               <div class="flex items-baseline gap-2.5 text-sm">
                 <span class="text-[10px] uppercase tracking-wider text-zinc-500">Last</span>
-                <span class="font-mono font-semibold text-sky-300">
-                  #{frame.lastEvent.eventId}
-                </span>
+                <span class="font-mono font-semibold text-sky-300">#{last.eventId}</span>
                 <span class="font-mono text-base font-bold {hit ? 'text-emerald-400' : 'text-zinc-500'}">
                   ×{lm.toFixed(2)}
                 </span>
-                {#if frame.history[0]}
-                  <span class="font-mono text-xs text-zinc-400">
-                    bet {formatAmount(frame.history[0].betAmount)} · win {formatAmount(frame.history[0].payout)}
-                  </span>
-                {/if}
+                <span class="font-mono text-xs text-zinc-400">
+                  bet {formatAmount(last.betAmount)} · win {formatAmount(last.payout)}
+                </span>
               </div>
             {:else}
               <span class="text-xs text-zinc-600">Waiting for first spin…</span>
