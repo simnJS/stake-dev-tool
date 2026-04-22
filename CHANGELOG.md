@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.8] — 2026-04-22
+
+### Changed
+
+- **Fresh installs now default to only `Desktop` + `Mobile M`** enabled,
+  instead of all 7 builtin resolutions. Spinning up 7 iframes on first
+  launch means 7 concurrent WebGL contexts, which chokes weaker GPUs and
+  occasionally races PixiJS shader compilation. The other five presets
+  (Laptop, Popout L/S, Mobile L/S) are still listed in the Resolutions
+  panel, just unchecked — tick the ones you actually need. Existing
+  installs are untouched: the settings self-heal only inserts builtins
+  that weren't already in `settings.json`, so your previous toggles
+  carry over.
+
 ## [0.3.7] — 2026-04-22
 
 ### Fixed
