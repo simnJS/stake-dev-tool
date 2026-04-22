@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.5] — 2026-04-21
+
+### Fixed
+
+- **`/play` no longer credits winnings immediately** — previously a winning
+  spin returned `balance = pre-bet - cost + payout` straight from `/play`,
+  skipping the credit animation in the game client. The RGS contract
+  expects `/play` to reflect only the bet deduction (`balance = pre-bet -
+  cost`) and `/end-round` to credit the payout. Moved `add_winnings` from
+  `play()` into `end_round()` and flipped the round's `active` flag to
+  `true` until end-round resolves it. Also: if the client sends a second
+  `/play` without `/end-round`, the previous round's pending payout is
+  credited before the new bet is taken instead of being silently lost.
+
 ## [0.3.4] — 2026-04-21
 
 ### Fixed
