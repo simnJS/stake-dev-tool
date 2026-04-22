@@ -130,6 +130,7 @@ jobs:
               s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz\.sig$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz.sig/;
               s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage/;
               s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage\.sig$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage.sig/;
+              s/^Stake\.Dev\.Tool_${VERSION}_amd64\.deb$/Stake-Dev-Tool-v${VERSION}-linux-x64.deb/;
             "
           }
 

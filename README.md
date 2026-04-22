@@ -46,8 +46,13 @@ Grab the latest installer for your platform from the
 - **macOS — Apple Silicon (M1/M2/M3/…)** — `Stake-Dev-Tool-vX.Y.Z-macos-arm64.app.tar.gz`
   (extract → drag `Stake Dev Tool.app` into `/Applications`). Intel Macs are
   not supported; if that's a blocker, open an issue.
-- **Linux (x86_64)** — `Stake-Dev-Tool-vX.Y.Z-linux-x64.AppImage`
-  (`chmod +x` then run)
+- **Linux (x86_64)** — either:
+  - `Stake-Dev-Tool-vX.Y.Z-linux-x64.deb` (recommended on Debian/Ubuntu —
+    pulls `libnss3-tools` automatically so the local CA install works
+    out of the box), or
+  - `Stake-Dev-Tool-vX.Y.Z-linux-x64.AppImage` (`chmod +x` then run;
+    requires `sudo apt install libnss3-tools` / `sudo dnf install
+    nss-tools` beforehand for the CA install step).
 
 Run the installer, launch **Stake Dev Tool** from the Start menu.
 
@@ -93,10 +98,11 @@ Artifacts land under `target/release/`:
    - **macOS** — one password prompt (login keychain). Covers Safari, Chrome,
      Edge, Brave. Firefox has its own NSS store; trust manually in
      `about:preferences#privacy` the first time.
-   - **Linux** — installs into `~/.pki/nssdb` (Chromium family). **Requires
-     `libnss3-tools`** (`sudo apt install libnss3-tools` on Debian/Ubuntu,
-     `sudo dnf install nss-tools` on Fedora). Firefox — same as macOS, trust
-     manually.
+   - **Linux** — installs into `~/.pki/nssdb` (Chromium family). Requires
+     `libnss3-tools`; the `.deb` package declares it as a dependency so apt
+     installs it automatically. AppImage users need to install it manually
+     (`sudo apt install libnss3-tools` on Debian/Ubuntu, `sudo dnf install
+     nss-tools` on Fedora). Firefox — same as macOS, trust manually.
 2. **Browse…** to your game's math folder (containing `index.json` plus the
    `lookuptable_*.csv` and `books_*.jsonl.zst` files).
 3. Enter the **Front URL** of your game's frontend (e.g.
