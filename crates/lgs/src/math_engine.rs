@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use rand::RngCore;
 use serde::Serialize;
 use serde_json::value::RawValue;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
@@ -12,7 +13,11 @@ use tokio::sync::OnceCell;
 
 pub struct BooksIndex {
     pub buffer: Vec<u8>,
-    pub offsets: Vec<u32>,
+    /// Maps each book's `id` field to its (start, end) byte range in `buffer`.
+    /// Built by scanning every line at load time — indexing by `id` rather than
+    /// by line position because math-sdk writes `library[sim+1] = Book(sim)`,
+    /// so line N contains id N-1 (not id N as the name might suggest).
+    pub id_to_range: HashMap<u32, (u32, u32)>,
 }
 
 pub struct WeightSampler {
@@ -380,14 +385,77 @@ fn parse_weights(text: &str) -> AppResult<WeightSampler> {
 fn decompress_and_index(compressed: &[u8]) -> AppResult<BooksIndex> {
     let buffer = zstd::decode_all(compressed).map_err(|e| AppError::Zstd(e.to_string()))?;
 
-    let mut offsets = Vec::with_capacity(buffer.len() / 256 + 1);
-    offsets.push(0u32);
-    for (i, b) in buffer.iter().enumerate() {
-        if *b == b'\n' && i + 1 < buffer.len() {
-            offsets.push((i + 1) as u32);
+    let mut id_to_range = HashMap::with_capacity(buffer.len() / 512 + 1);
+    let mut line_start = 0usize;
+    let mut i = 0usize;
+    while i < buffer.len() {
+        if buffer[i] == b'\n' {
+            index_line(&buffer, line_start, i, &mut id_to_range);
+            line_start = i + 1;
         }
+        i += 1;
     }
-    Ok(BooksIndex { buffer, offsets })
+    // Trailing line without a newline terminator.
+    if line_start < buffer.len() {
+        index_line(&buffer, line_start, buffer.len(), &mut id_to_range);
+    }
+
+    Ok(BooksIndex {
+        buffer,
+        id_to_range,
+    })
+}
+
+fn index_line(
+    buffer: &[u8],
+    line_start: usize,
+    mut line_end: usize,
+    id_to_range: &mut HashMap<u32, (u32, u32)>,
+) {
+    if line_end > line_start && buffer[line_end - 1] == b'\r' {
+        line_end -= 1;
+    }
+    if line_end <= line_start {
+        return;
+    }
+    if let Some(id) = read_id_field(&buffer[line_start..line_end]) {
+        id_to_range.insert(id, (line_start as u32, line_end as u32));
+    }
+}
+
+/// Pull the `id` value out of a line without parsing the (potentially huge)
+/// events array. math-sdk always writes `"id"` as the first key of each book,
+/// so we scan for `{"id":N` with optional whitespace. Lines that don't match
+/// are skipped silently — they won't be reachable via event lookup anyway.
+fn read_id_field(slice: &[u8]) -> Option<u32> {
+    let i = skip_ws(slice, 0);
+    if *slice.get(i)? != b'{' {
+        return None;
+    }
+    let i = skip_ws(slice, i + 1);
+    if slice.get(i..i + 4)? != b"\"id\"" {
+        return None;
+    }
+    let i = skip_ws(slice, i + 4);
+    if *slice.get(i)? != b':' {
+        return None;
+    }
+    let start = skip_ws(slice, i + 1);
+    let mut end = start;
+    while slice.get(end).is_some_and(u8::is_ascii_digit) {
+        end += 1;
+    }
+    if end == start {
+        return None;
+    }
+    std::str::from_utf8(&slice[start..end]).ok()?.parse().ok()
+}
+
+fn skip_ws(s: &[u8], mut i: usize) -> usize {
+    while i < s.len() && matches!(s[i], b' ' | b'\t' | b'\r' | b'\n') {
+        i += 1;
+    }
+    i
 }
 
 fn weighted_pick(sampler: &WeightSampler) -> WeightEntry {
@@ -409,30 +477,13 @@ fn weighted_pick(sampler: &WeightSampler) -> WeightEntry {
 }
 
 fn read_event(idx: &BooksIndex, event_id: u32) -> AppResult<Arc<RawValue>> {
-    let i = (event_id as usize)
-        .checked_sub(1)
-        .ok_or_else(|| AppError::Parse("event id 0 not allowed".into()))?;
-    if i >= idx.offsets.len() {
-        return Err(AppError::Parse(format!(
-            "event {event_id} not found ({} events)",
-            idx.offsets.len()
-        )));
-    }
-    let start = idx.offsets[i] as usize;
-    let end = if i + 1 < idx.offsets.len() {
-        let mut e = idx.offsets[i + 1] as usize - 1;
-        while e > start && (idx.buffer[e - 1] == b'\n' || idx.buffer[e - 1] == b'\r') {
-            e -= 1;
-        }
-        e
-    } else {
-        let mut e = idx.buffer.len();
-        while e > start && (idx.buffer[e - 1] == b'\n' || idx.buffer[e - 1] == b'\r') {
-            e -= 1;
-        }
-        e
-    };
-    let slice = &idx.buffer[start..end];
+    let &(start, end) = idx.id_to_range.get(&event_id).ok_or_else(|| {
+        AppError::Parse(format!(
+            "event {event_id} not found in books ({} ids indexed)",
+            idx.id_to_range.len()
+        ))
+    })?;
+    let slice = &idx.buffer[start as usize..end as usize];
 
     #[derive(serde::Deserialize)]
     struct Wrapper<'a> {
