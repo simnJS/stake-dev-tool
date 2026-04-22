@@ -18,14 +18,19 @@ pub struct Settings {
     pub resolutions: Vec<ResolutionPreset>,
 }
 
-const BUILTIN: &[(&str, &str, u32, u32)] = &[
-    ("desktop", "Desktop", 1200, 675),
-    ("laptop", "Laptop", 1024, 576),
-    ("popout-l", "Popout L", 800, 450),
-    ("popout-s", "Popout S", 400, 225),
-    ("mobile-l", "Mobile L", 425, 821),
-    ("mobile-m", "Mobile M", 375, 667),
-    ("mobile-s", "Mobile S", 320, 568),
+// Default-enabled set kept minimal (one desktop + one mobile) so a first
+// launch doesn't spin up 7 WebGL contexts in parallel. Users enable the
+// rest on demand via the sidebar. Adjusting `enabled_by_default` for a
+// builtin only affects brand-new installs — existing users' settings are
+// preserved by `load()`'s self-heal path.
+const BUILTIN: &[(&str, &str, u32, u32, bool)] = &[
+    ("desktop", "Desktop", 1200, 675, true),
+    ("laptop", "Laptop", 1024, 576, false),
+    ("popout-l", "Popout L", 800, 450, false),
+    ("popout-s", "Popout S", 400, 225, false),
+    ("mobile-l", "Mobile L", 425, 821, false),
+    ("mobile-m", "Mobile M", 375, 667, true),
+    ("mobile-s", "Mobile S", 320, 568, false),
 ];
 
 impl Default for Settings {
@@ -33,12 +38,12 @@ impl Default for Settings {
         Self {
             resolutions: BUILTIN
                 .iter()
-                .map(|(id, label, w, h)| ResolutionPreset {
+                .map(|(id, label, w, h, enabled)| ResolutionPreset {
                     id: (*id).to_string(),
                     label: (*label).to_string(),
                     width: *w,
                     height: *h,
-                    enabled: true,
+                    enabled: *enabled,
                     builtin: true,
                 })
                 .collect(),
@@ -62,14 +67,16 @@ pub async fn load() -> Result<Settings> {
     let mut parsed: Settings = serde_json::from_slice(&bytes).context("parse settings.json")?;
 
     // Self-heal: ensure all builtins exist (if a new release adds new defaults).
-    for (id, label, w, h) in BUILTIN {
+    // New builtins inherit their default `enabled_by_default`; existing ones
+    // keep whatever the user set.
+    for (id, label, w, h, enabled) in BUILTIN {
         if !parsed.resolutions.iter().any(|r| r.id == *id) {
             parsed.resolutions.push(ResolutionPreset {
                 id: (*id).to_string(),
                 label: (*label).to_string(),
                 width: *w,
                 height: *h,
-                enabled: true,
+                enabled: *enabled,
                 builtin: true,
             });
         }
