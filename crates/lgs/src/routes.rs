@@ -108,10 +108,10 @@ async fn play(
     // without /end-round), credit its pending payout before taking the new
     // bet — otherwise the winnings would be lost when the active_round slot
     // is overwritten below.
-    if let Some(round) = existing.active_round.as_ref() {
-        if round.payout > 0 {
-            state.sessions.add_winnings(&session_id, round.payout);
-        }
+    if let Some(round) = existing.active_round.as_ref()
+        && round.payout > 0
+    {
+        state.sessions.add_winnings(&session_id, round.payout);
     }
 
     let mode_cost = state.engine.get_mode_cost(&game, &mode).await?;
@@ -217,10 +217,10 @@ async fn end_round(
     // Credit the pending round's payout now. /play only deducts the bet and
     // stores the outcome on active_round; we pay it out here so the client's
     // balance animation (spin → credit) matches the Stake Engine RGS contract.
-    if let Some(round) = session.active_round.as_ref() {
-        if round.payout > 0 {
-            state.sessions.add_winnings(&session_id, round.payout);
-        }
+    if let Some(round) = session.active_round.as_ref()
+        && round.payout > 0
+    {
+        state.sessions.add_winnings(&session_id, round.payout);
     }
     state.sessions.set_active_round(&session_id, None);
 
