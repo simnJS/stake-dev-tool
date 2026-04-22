@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.7] — 2026-04-22
+
+### Fixed
+
+- **Force / replay now returns the state for the requested event id** —
+  the books indexer was mapping line N in `books_*.jsonl.zst` to event
+  id N, but Stake math-sdk actually writes id N-1 on line N (because
+  `library[sim + 1] = Book(sim).to_json()`, so the library key is sim+1
+  while the book's `id` field is sim, 0-indexed). Force-spinning event
+  4676 used to credit the correct payout (looked up in the weights
+  table, which does use the `id` value) but display the visuals from
+  event 4675. `BooksIndex` now keys by each line's `id` field instead
+  of by line position, so any id numbering works — 0-indexed current
+  math-sdk output, 1-indexed if the convention ever flips, or even
+  non-contiguous ids.
+
 ## [0.3.6] — 2026-04-22
 
 ### Added
