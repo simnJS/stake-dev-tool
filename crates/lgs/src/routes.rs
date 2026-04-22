@@ -99,10 +99,20 @@ async fn play(
     let mode = body.mode.ok_or(AppError::MissingField("mode"))?;
     let amount = body.amount.ok_or(AppError::MissingField("amount"))?;
 
-    state
+    let existing = state
         .sessions
         .get(&session_id)
         .ok_or(AppError::SessionNotFound)?;
+
+    // Safety: if a previous round is still active (client called /play twice
+    // without /end-round), credit its pending payout before taking the new
+    // bet — otherwise the winnings would be lost when the active_round slot
+    // is overwritten below.
+    if let Some(round) = existing.active_round.as_ref() {
+        if round.payout > 0 {
+            state.sessions.add_winnings(&session_id, round.payout);
+        }
+    }
 
     let mode_cost = state.engine.get_mode_cost(&game, &mode).await?;
     let total_cost = amount.saturating_mul(mode_cost);
@@ -129,9 +139,9 @@ async fn play(
         state.engine.play_spin(&game, &mode, total_cost).await?
     };
 
-    if result.payout > 0 {
-        state.sessions.add_winnings(&session_id, result.payout);
-    }
+    // Winnings are NOT credited here — the RGS contract credits payouts at
+    // /end-round, so the balance returned by /play reflects only the bet
+    // deduction. See end_round() below.
     state
         .sessions
         .set_last_event(&session_id, result.event_id, result.payout_multiplier);
@@ -162,7 +172,8 @@ async fn play(
         amount: total_cost,
         payout: result.payout,
         payout_multiplier: result.payout_multiplier as f64 / 100.0,
-        active: false,
+        // Active until the client calls /end-round, which credits the payout.
+        active: true,
         mode,
         event: Some(result.event_id.to_string()),
         state: result.state,
@@ -198,11 +209,19 @@ async fn end_round(
     Json(body): Json<EndRoundBody>,
 ) -> AppResult<Json<EndRoundResponse>> {
     let session_id = body.session_id.ok_or(AppError::MissingField("sessionID"))?;
-    state
+    let session = state
         .sessions
         .get(&session_id)
         .ok_or(AppError::SessionNotFound)?;
 
+    // Credit the pending round's payout now. /play only deducts the bet and
+    // stores the outcome on active_round; we pay it out here so the client's
+    // balance animation (spin → credit) matches the Stake Engine RGS contract.
+    if let Some(round) = session.active_round.as_ref() {
+        if round.payout > 0 {
+            state.sessions.add_winnings(&session_id, round.payout);
+        }
+    }
     state.sessions.set_active_round(&session_id, None);
 
     let session = state
