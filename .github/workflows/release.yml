@@ -82,6 +82,24 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm --filter ui build
 
+      # The git tag is the source of truth for the release version.
+      # Writing it into tauri.conf.json ensures tauri-action produces artefacts
+      # named `Stake.Dev.Tool_<tag>_...` — otherwise a forgotten bump in the
+      # config file silently desyncs asset names from the rename/manifest
+      # rules and ships a broken updater for Windows/Linux.
+      - name: Sync tauri.conf.json version to tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs = require('fs');
+            const p = 'crates/desktop/tauri.conf.json';
+            const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+            c.version = '${VERSION}';
+            fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');
+          "
+          echo "tauri.conf.json version set to ${VERSION}"
+
       - name: Build + sign Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -122,15 +140,19 @@ jobs:
           gh release view "$TAG" --repo "$REPO" --json assets \
             --jq '.assets[] | "\(.apiUrl)\t\(.name)"' > assets.tsv
 
+          # Match any `_X.Y.Z_` segment rather than the exact tag version, so a
+          # drift between tauri.conf.json and the git tag (which we now guard
+          # against in the build job anyway) can't silently break the rename
+          # and leave the updater manifest incomplete.
           rename_rule() {
             echo "$1" | sed -E "
-              s/^Stake\.Dev\.Tool_${VERSION}_x64-setup\.exe$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe/;
-              s/^Stake\.Dev\.Tool_${VERSION}_x64-setup\.exe\.sig$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe.sig/;
+              s/^Stake\.Dev\.Tool_[0-9]+\.[0-9]+\.[0-9]+_x64-setup\.exe$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe/;
+              s/^Stake\.Dev\.Tool_[0-9]+\.[0-9]+\.[0-9]+_x64-setup\.exe\.sig$/Stake-Dev-Tool-v${VERSION}-windows-x64.exe.sig/;
               s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz/;
               s/^Stake\.Dev\.Tool_aarch64\.app\.tar\.gz\.sig$/Stake-Dev-Tool-v${VERSION}-macos-arm64.app.tar.gz.sig/;
-              s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage/;
-              s/^Stake\.Dev\.Tool_${VERSION}_amd64\.AppImage\.sig$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage.sig/;
-              s/^Stake\.Dev\.Tool_${VERSION}_amd64\.deb$/Stake-Dev-Tool-v${VERSION}-linux-x64.deb/;
+              s/^Stake\.Dev\.Tool_[0-9]+\.[0-9]+\.[0-9]+_amd64\.AppImage$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage/;
+              s/^Stake\.Dev\.Tool_[0-9]+\.[0-9]+\.[0-9]+_amd64\.AppImage\.sig$/Stake-Dev-Tool-v${VERSION}-linux-x64.AppImage.sig/;
+              s/^Stake\.Dev\.Tool_[0-9]+\.[0-9]+\.[0-9]+_amd64\.deb$/Stake-Dev-Tool-v${VERSION}-linux-x64.deb/;
             "
           }
 
@@ -237,6 +259,21 @@ jobs:
           echo "  win: $win_exe / $win_sig_name"
           echo "  mac: $mac_tar / $mac_sig_name"
           echo "  linux: $linux_app / $linux_sig_name"
+
+          # Refuse to publish a half-built manifest: the build matrix produces
+          # all three platforms, so any missing asset means the rename step
+          # didn't catch an artefact. Silently shipping only darwin-aarch64 is
+          # exactly how the v0.3.7/0.3.8 updater broke for Windows.
+          missing=()
+          [ -z "$win_exe" ] || [ -z "$win_sig_name" ] && missing+=("windows")
+          [ -z "$mac_tar" ] || [ -z "$mac_sig_name" ] && missing+=("macos")
+          [ -z "$linux_app" ] || [ -z "$linux_sig_name" ] && missing+=("linux")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing updater assets for: ${missing[*]}"
+            echo "Assets present on the release:"
+            echo "$asset_names" | sed 's/^/  - /'
+            exit 1
+          fi
 
           platforms_json="{}"
           if [ -n "$win_exe" ] && [ -n "$win_sig_name" ]; then
