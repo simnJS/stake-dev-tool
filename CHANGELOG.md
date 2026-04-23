@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.9] — 2026-04-23
+
+### Fixed
+
+- **Windows auto-update is restored.** The `latest.json` updater manifest
+  for v0.3.7 and v0.3.8 only listed `darwin-aarch64`, so existing Windows
+  installs hit `None of the fallback platforms windows-x86_64-nsis,
+  windows-x86_64 were found in the response platforms object` and stayed
+  on whatever they had. Root cause: `tauri.conf.json` was never bumped
+  past `0.3.6`, so `tauri-action` produced assets named
+  `Stake.Dev.Tool_0.3.6_x64-setup.exe`, which didn't match the
+  tag-version-based rename rule in CI, which meant the manifest step
+  couldn't find them and silently emitted a macOS-only manifest.
+
+### Changed
+
+- **Release pipeline: the git tag is now the sole source of truth for
+  the version.** A new CI step rewrites `tauri.conf.json` with the tag
+  version before the Tauri build, so forgetting to bump it locally can
+  no longer desync artefact names. The rename step also now matches any
+  `_X.Y.Z_` version (defence in depth), and the manifest step fails
+  loudly if any platform's updater asset is missing instead of shipping
+  a partial manifest.
+
 ## [0.3.8] — 2026-04-22
 
 ### Changed
