@@ -162,8 +162,11 @@ function patchFetch(win, bundle, onFirstRgsCall) {
       const u = new URL(url, win.location.href);
       const path = u.pathname;
       const rgsBase = `/api/rgs/${slug}/wallet/`;
-      const replayBase = `/bet/replay/${slug}/`;
-      if (path.includes(rgsBase) || path.includes(replayBase)) {
+      // Replay (`/bet/replay/<slug>/`) is intentionally NOT matched: the WASM
+      // dispatcher has no `replay` action, so intercepting would synthesize a
+      // 500. Letting these requests fall through to the real network gives the
+      // game its normal "replay unavailable" path.
+      if (path.includes(rgsBase)) {
         if (!firstCallFired) {
           firstCallFired = true;
           try { onFirstRgsCall?.(); } catch {}

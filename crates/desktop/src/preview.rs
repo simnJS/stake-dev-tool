@@ -934,11 +934,13 @@ pub async fn build_local(
     if !front.is_dir() {
         return Err(anyhow!("front path is not a directory: {}", front.display()));
     }
+    // Folder is keyed on profile.id (immutable UUID) rather than the user-
+    // editable name so renaming a profile doesn't orphan the previous build.
     let dest = dirs::data_local_dir()
         .ok_or_else(|| anyhow!("no local data dir"))?
         .join("stake-dev-tool")
         .join("previews")
-        .join(slug(&profile.name));
+        .join(&profile.id);
     // Wipe any previous build so we start fresh.
     let _ = fs::remove_dir_all(&dest).await;
     assemble_bundle(&dest, &profile, &front, math_mode, None, "").await?;
@@ -970,6 +972,9 @@ async fn publish_inner(
         return Err(anyhow!("front path is not a directory: {}", front.display()));
     }
 
+    // `preview_label` is purely cosmetic — it identifies the run in progress
+    // events sent to the UI. The GitHub repo name is keyed on `profile.id`
+    // so a rename can't orphan the public repo (which serves math).
     let preview_label = slug(&profile.name);
 
     emit_progress(
@@ -989,7 +994,7 @@ async fn publish_inner(
 
     let staging = std::env::temp_dir()
         .join("stake-dev-tool-preview-build")
-        .join(slug(&profile.name));
+        .join(&profile.id);
     let _ = fs::remove_dir_all(&staging).await;
     assemble_bundle(&staging, &profile, &front, math_mode, Some(app), &preview_label).await?;
 
@@ -1001,7 +1006,7 @@ async fn publish_inner(
     // Ensure a per-preview repo exists. One repo per preview means each
     // gets its own Pages 1 GB budget and a clean unpublish (`DELETE /repos`).
     let owner = user.login.clone();
-    let repo_name = preview_repo_name(&preview_label);
+    let repo_name = preview_repo_name(&profile.id);
     let repo = match client.get_repo(&owner, &repo_name).await {
         Ok(r) => r,
         Err(_) => {
@@ -1175,8 +1180,13 @@ async fn publish_inner(
         bundle_total_bytes,
     );
 
-    // Enable Pages (idempotent — 409 if already enabled).
-    enable_pages(&client, &owner, &repo.name).await.ok();
+    // Enable Pages (idempotent — 409/422 already-enabled cases are mapped to
+    // Ok inside `enable_pages`, so anything reaching the Err branch here is a
+    // real failure: missing scope, transient 5xx, etc. Surfacing it stops us
+    // from handing the user a "done" toast for a URL that will 404 forever.
+    enable_pages(&client, &owner, &repo.name)
+        .await
+        .context("enable GitHub Pages")?;
 
     let url = format!(
         "https://{}.github.io/{}/",
@@ -1279,8 +1289,10 @@ pub async fn unpublish(profile_id: &str) -> Result<()> {
         .await?
         .ok_or_else(|| anyhow!("not signed in"))?;
     let client = GithubClient::from_stored_token()?;
-    let preview_label = slug(&profile.name);
-    let repo_name = preview_repo_name(&preview_label);
+    // Match `publish_inner`: repo is keyed on the immutable profile id, NOT
+    // on the user-editable name (otherwise a rename would point unpublish at
+    // a non-existent repo and silently leave the original public).
+    let repo_name = preview_repo_name(&profile.id);
 
     // One repo per preview → unpublish is just `DELETE /repos`. Same scope
     // as the OAuth `delete_repo` we already grant.

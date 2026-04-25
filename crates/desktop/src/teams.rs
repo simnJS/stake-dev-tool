@@ -483,7 +483,11 @@ pub async fn remove_from_catalog(team_id: &str, profile_id: &str) -> Result<()> 
             "https://api.github.com/repos/{}/{}/releases/{}",
             team.repo_owner, team.repo_name, release.id
         );
-        let _ = reqwest::Client::builder()
+        // Don't propagate: a stale release tag won't break re-publish (the
+        // engine reuses it). But DO log: silently dropping the failure means
+        // a "Removed from team" toast can fire while a ghost release lingers
+        // on github.com with no debuggable trail.
+        match reqwest::Client::builder()
             .user_agent("stake-dev-tool")
             .build()
             .context("build client")?
@@ -495,7 +499,23 @@ pub async fn remove_from_catalog(team_id: &str, profile_id: &str) -> Result<()> 
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
-            .await;
+            .await
+        {
+            Ok(res) if !res.status().is_success() => {
+                let status = res.status();
+                let body = res.text().await.unwrap_or_default();
+                tracing::warn!(
+                    %status,
+                    body = %body,
+                    release_id = release.id,
+                    "release DELETE failed; tag may be orphaned"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, release_id = release.id, "release DELETE transport error");
+            }
+            _ => {}
+        }
     }
 
     // Delete the manifest + profile JSON.
@@ -1012,7 +1032,35 @@ async fn sync_profiles(client: &GithubClient, team: &Team) -> Result<(u32, u32)>
 }
 
 async fn sync_saved_rounds(client: &GithubClient, team: &Team) -> Result<(u32, u32)> {
-    let local = lgs::saved_rounds::list(None).await?;
+    // Resolve the games this team actually catalogues from its `profiles/`
+    // directory. Without this filter, `lgs::saved_rounds::list(None)` would
+    // return every round on disk (including rounds for purely-local profiles
+    // and rounds for OTHER teams' games), and we'd happily push all of them
+    // into this team's repo — leaking them to every member on next sync.
+    // Mirrors the per-game filter `push_local_profile` already uses.
+    let team_profile_entries = client
+        .list_dir(&team.repo_owner, &team.repo_name, "profiles")
+        .await
+        .unwrap_or_default();
+    let mut team_slugs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for e in team_profile_entries {
+        if e.kind != "file" || !e.name.ends_with(".json") {
+            continue;
+        }
+        if let Ok(Some(file)) = client
+            .get_file(&team.repo_owner, &team.repo_name, &e.path)
+            .await
+        {
+            if let Ok(p) = serde_json::from_slice::<crate::profiles::Profile>(&file.content) {
+                team_slugs.insert(p.game_slug);
+            }
+        }
+    }
+    let local: Vec<lgs::saved_rounds::SavedRound> = lgs::saved_rounds::list(None)
+        .await?
+        .into_iter()
+        .filter(|r| team_slugs.contains(&r.game_slug))
+        .collect();
     let remote_entries = client
         .list_dir(&team.repo_owner, &team.repo_name, "saved-rounds")
         .await?;

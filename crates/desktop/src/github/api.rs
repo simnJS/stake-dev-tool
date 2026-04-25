@@ -310,25 +310,51 @@ impl GithubClient {
         // GitHub's search API restricted to repos the authenticated user can
         // access that carry a specific topic. We stamp "stake-dev-tool-team"
         // on every repo we create so users only see the relevant ones.
-        let url = format!(
-            "{API_BASE}/search/repositories?q=topic:{marker_topic}+is:private+user:@me&per_page=100"
-        );
-        let res = self
-            .json_request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .context("search team repos")?;
-        let status = res.status();
-        if !status.is_success() {
-            let body = res.text().await.unwrap_or_default();
-            return Err(anyhow!("search repos: {status} {body}"));
-        }
+        //
+        // Pagination is required: per_page maxes out at 100 and search caps at
+        // 1000 results / 10 pages. Sorting by `updated` keeps the truncation
+        // (if any) deterministic across requests instead of relying on the
+        // default relevance ordering.
         #[derive(Deserialize)]
         struct SearchResponse {
+            #[serde(default)]
+            total_count: u64,
             items: Vec<RepoInfo>,
         }
-        let parsed: SearchResponse = res.json().await.context("parse search")?;
-        Ok(parsed.items)
+        let mut all = Vec::new();
+        let mut page: u32 = 1;
+        loop {
+            let url = format!(
+                "{API_BASE}/search/repositories?q=topic:{marker_topic}+is:private+user:@me&sort=updated&per_page=100&page={page}"
+            );
+            let res = self
+                .json_request(reqwest::Method::GET, &url)
+                .send()
+                .await
+                .context("search team repos")?;
+            let status = res.status();
+            if !status.is_success() {
+                let body = res.text().await.unwrap_or_default();
+                return Err(anyhow!("search repos: {status} {body}"));
+            }
+            let parsed: SearchResponse = res.json().await.context("parse search")?;
+            let returned = parsed.items.len();
+            all.extend(parsed.items);
+            // Stop when the page is short (no more results) or we've hit the
+            // search-API hard cap of 1000 results / 10 pages.
+            if returned < 100 || page >= 10 {
+                if parsed.total_count as usize > all.len() {
+                    tracing::warn!(
+                        total = parsed.total_count,
+                        returned = all.len(),
+                        "list_team_repos: results exceed search-API cap; some teams will not appear"
+                    );
+                }
+                break;
+            }
+            page += 1;
+        }
+        Ok(all)
     }
 
     pub async fn set_repo_topics(

@@ -1,8 +1,7 @@
 // Stake Dev Tool — preview shim, runs INSIDE the game iframe before the
 // game's own scripts. Patches `fetch` and `XMLHttpRequest` so any call to
-// the RGS contract (`/api/rgs/<slug>/wallet/*`, `/bet/replay/<slug>/*`) is
-// answered from the WASM engine on the parent window instead of crossing
-// the network.
+// `/api/rgs/<slug>/wallet/*` is answered from the WASM engine on the parent
+// window instead of crossing the network.
 //
 // Why a shim and not the parent-side fetch override: the parent only gets
 // to monkey-patch the iframe's `window.fetch` after the iframe `load`
@@ -32,10 +31,10 @@
   }
 
   function isRgsPath(path, slug) {
-    return (
-      path.includes(`/api/rgs/${slug}/wallet/`) ||
-      path.includes(`/bet/replay/${slug}/`)
-    );
+    // Replay (`/bet/replay/<slug>/`) is intentionally NOT matched: the WASM
+    // dispatcher has no `replay` action, so intercepting would synthesize a
+    // 500. Let these requests fall through to the real network instead.
+    return path.includes(`/api/rgs/${slug}/wallet/`);
   }
 
   function getAction(path, slug) {
