@@ -5,6 +5,35 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-04-25
+
+### Added
+
+- **Teams** — collaborative workspaces backed by a private GitHub repo per team
+  (Device Flow auth, OS-keychain token storage, multi-team push picker).
+- **Preview publishing** — one-click "share preview link"; bundles game front +
+  WASM RGS + math, pushes to a per-preview public repo, served via GitHub Pages.
+  Three sampling modes (Sampled / Partial / Full).
+- **lgs-wasm** crate — math engine compiled to wasm32 so previews play in the
+  browser without a server.
+- **GitHub sign-in surfaced in the topbar** + inline CTA in the Share preview
+  dialog so authentication isn't buried behind the Teams page.
+- **LGS port is now configurable** from the topbar (persisted to localStorage,
+  hot-restarts the LGS when running).
+- **Test view** redesigned with shadcn-svelte components.
+
+### Fixed
+
+- Test view bet-history / last-event SSE no longer dies on initial load when
+  the session hasn't been prepared yet (was returning 404, which permanently
+  closes EventSource).
+- `sync_saved_rounds` no longer leaks every local round to every team —
+  filtered by the team's catalogued game slugs.
+- `enable_pages` errors are propagated instead of silently swallowed.
+- Replay path no longer matches the WASM RGS guard (returned synthetic 500).
+- Preview repo names are now keyed off the immutable profile id, so renaming
+  a profile no longer orphans the previously-published public repo.
+
 ## [0.3.9] — 2026-04-23
 
 ### Fixed

@@ -18,6 +18,34 @@
     type ModeBetStats
   } from '$lib/api';
 
+  import { Button } from '$lib/components/ui/button';
+  import * as Card from '$lib/components/ui/card';
+  import { Input } from '$lib/components/ui/input';
+  import { Label } from '$lib/components/ui/label';
+  import { Switch } from '$lib/components/ui/switch';
+  import { Badge } from '$lib/components/ui/badge';
+  import { Separator } from '$lib/components/ui/separator';
+  import { Checkbox } from '$lib/components/ui/checkbox';
+  import * as Dialog from '$lib/components/ui/dialog';
+  import * as Tooltip from '$lib/components/ui/tooltip';
+  import { Toaster } from '$lib/components/ui/sonner';
+  import { toast } from 'svelte-sonner';
+
+  import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
+  import VolumeIcon from '@lucide/svelte/icons/volume-2';
+  import VolumeOffIcon from '@lucide/svelte/icons/volume-x';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import StarIcon from '@lucide/svelte/icons/star';
+  import StarOffIcon from '@lucide/svelte/icons/star-off';
+  import TrashIcon from '@lucide/svelte/icons/trash-2';
+  import LayoutIcon from '@lucide/svelte/icons/layout-grid';
+  import PlusIcon from '@lucide/svelte/icons/plus';
+  import XIcon from '@lucide/svelte/icons/x';
+  import RewindIcon from '@lucide/svelte/icons/rewind';
+  import ZapIcon from '@lucide/svelte/icons/zap';
+  import HistoryIcon from '@lucide/svelte/icons/history';
+
   // Stake social-mode currencies (XGC = Gold Coin, XSC = Stake Cash) only
   // make sense when social=true; hide them otherwise.
   const SOCIAL_CURRENCIES = new Set(['XGC', 'XSC']);
@@ -46,8 +74,8 @@
   const availableCurrencies = $derived(social ? socialCurrencies : realCurrencies);
 
   // Auto-switch currency when toggling social mode in/out of valid set.
-  function toggleSocial() {
-    social = !social;
+  function toggleSocial(next: boolean) {
+    social = next;
     if (social) {
       if (!SOCIAL_CURRENCIES.has(currency)) currency = 'XGC';
     } else {
@@ -65,7 +93,6 @@
 
   function rebuildFramesFromResolutions(prev: FrameState[] = []) {
     const enabled = allResolutions.filter((r) => r.enabled);
-    // Preserve existing frame state for resolutions still enabled.
     const byId = new Map(prev.map((f) => [f.res.id, f]));
     frames = enabled.map((res) => {
       const existing = byId.get(res.id);
@@ -84,14 +111,8 @@
     });
   }
 
-  // ---- Modes (from the game's index.json, loaded on mount) ----
-
-  // Falls back to ['base'] while loading so the dropdowns are never empty. Once
-  // the modes endpoint responds with the real list we overwrite it and snap
-  // forcedMode/replayMode onto a valid entry.
+  // Falls back to ['base'] while loading so the dropdowns are never empty.
   let availableModes = $state<string[]>(['base']);
-
-  // ---- Force event + last event + replay ----
 
   let forcedMode = $state<string>('base');
   let forcedEventId = $state<number | null>(null);
@@ -100,15 +121,11 @@
   let replayMode = $state<string>('base');
   let replayEventId = $state<number | null>(null);
 
-  // ---- Saved rounds ----
-
   let savedRounds = $state<SavedRound[]>([]);
   let showSavedRounds = $state(true);
   let savingRound = $state(false);
   let saveDescription = $state('');
   let showSaveInput = $state(false);
-
-  // ---- Notable rounds (computed from books per mode) ----
 
   let notableRounds = $state<ModeBetStats[]>([]);
   let notableLoading = $state(false);
@@ -120,7 +137,7 @@
     try {
       savedRounds = await savedRoundsHttp.list(gameSlug);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -131,7 +148,7 @@
       notableRounds = await betStatsHttp.get(gameSlug);
       notableLoaded = true;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       notableLoading = false;
     }
@@ -149,17 +166,15 @@
     try {
       const resp = await forcedEventHttp.set(mode, eventId);
       forcedEventBanner = resp.forced;
-      info = `Forced: ${mode} #${eventId}.`;
-      setTimeout(() => (info = null), 2500);
+      toast.success(`Forced: ${mode} #${eventId}`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
   }
 
-  /** Bookmark a notable bet with the auto-set description ("min" / "average win"
-   *  / "max win"). No popup — these descriptions are canonical. */
+  /** Bookmark a notable bet with the auto-set description. */
   async function bookmarkNotable(mode: string, eventId: number, kind: 'min' | 'avg' | 'max') {
     if (!gameSlug) return;
     if (isBookmarked(mode, eventId)) return;
@@ -167,16 +182,15 @@
     try {
       await savedRoundsHttp.create(gameSlug, mode, eventId, description);
       await reloadSavedRounds();
-      info = `Bookmarked ${mode} #${eventId} (${description}).`;
-      setTimeout(() => (info = null), 2000);
+      toast.success(`Bookmarked ${mode} #${eventId} (${description})`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function saveCurrentRound() {
     if (forcedEventId === null || forcedEventId <= 0) {
-      error = 'Enter a valid event id before saving.';
+      toast.error('Enter a valid event id before saving.');
       return;
     }
     if (!gameSlug) return;
@@ -191,10 +205,9 @@
       saveDescription = '';
       showSaveInput = false;
       await reloadSavedRounds();
-      info = `Saved ${forcedMode} #${forcedEventId}.`;
-      setTimeout(() => (info = null), 2000);
+      toast.success(`Saved ${forcedMode} #${forcedEventId}`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       savingRound = false;
     }
@@ -207,10 +220,9 @@
     try {
       const resp = await forcedEventHttp.set(r.mode, r.eventId);
       forcedEventBanner = resp.forced;
-      info = `Forced: ${r.mode} #${r.eventId}${r.description ? ` — ${r.description}` : ''}.`;
-      setTimeout(() => (info = null), 3000);
+      toast.success(`Forced: ${r.mode} #${r.eventId}${r.description ? ` — ${r.description}` : ''}`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -222,7 +234,7 @@
       await savedRoundsHttp.remove(r.id);
       await reloadSavedRounds();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -253,8 +265,6 @@
     bookmarkModal = null;
   }
 
-  // Focus the description input when the modal opens (replaces `autofocus`,
-  // which svelte-check flags as an a11y antipattern).
   let bookmarkInputEl = $state<HTMLInputElement | null>(null);
   $effect(() => {
     if (bookmarkModal && bookmarkInputEl) {
@@ -273,28 +283,26 @@
         bookmarkModal.description.trim()
       );
       await reloadSavedRounds();
-      info = `Bookmarked ${bookmarkModal.mode} #${bookmarkModal.eventId}.`;
-      setTimeout(() => (info = null), 2000);
+      toast.success(`Bookmarked ${bookmarkModal.mode} #${bookmarkModal.eventId}`);
       bookmarkModal = null;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
       if (bookmarkModal) bookmarkModal.saving = false;
     }
   }
 
   async function applyForcedEvent() {
     if (forcedEventId === null || forcedEventId <= 0) {
-      error = 'Enter a valid event id.';
+      toast.error('Enter a valid event id.');
       return;
     }
     busy = true;
     try {
       const r = await forcedEventHttp.set(forcedMode, forcedEventId);
       forcedEventBanner = r.forced;
-      info = `Forced: mode=${forcedMode}, eventId=${forcedEventId}. Every /play in this mode now returns this event.`;
-      setTimeout(() => (info = null), 3000);
+      toast.success(`Forced: ${forcedMode} #${forcedEventId}`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -305,10 +313,9 @@
     try {
       await forcedEventHttp.clear();
       forcedEventBanner = null;
-      info = 'Forced event cleared — back to RNG.';
-      setTimeout(() => (info = null), 2500);
+      toast.info('Forced event cleared — back to RNG.');
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -316,7 +323,7 @@
 
   async function launchReplay(frame: FrameState) {
     if (replayEventId === null || replayEventId <= 0) {
-      error = 'Enter a valid event id to replay.';
+      toast.error('Enter a valid event id to replay.');
       return;
     }
     const url = replayUrl(gameUrl, gameSlug, lgsHostPort, {
@@ -329,13 +336,12 @@
       social
     });
     frame.src = url;
-    info = `Replay launched on ${frame.res.label}: ${replayMode} #${replayEventId}.`;
-    setTimeout(() => (info = null), 2500);
+    toast.success(`Replay launched on ${frame.res.label}: ${replayMode} #${replayEventId}`);
   }
 
   // One persistent SSE connection per frame (keyed by sessionId). The server
   // emits a `snapshot` event on connect (full current history) then pushes
-  // each new event as it happens. No polling, no wasted requests.
+  // each new event as it happens.
   const eventSources = new Map<string, EventSource>();
   const HISTORY_CAP = 100;
 
@@ -359,8 +365,7 @@
         try {
           const entry = JSON.parse((ev as MessageEvent).data) as EventEntry;
           // De-dup: server sends the snapshot then subscribes, so an entry
-          // pushed in that window can arrive via both paths. Skip if head
-          // already matches.
+          // pushed in that window can arrive via both paths.
           const head = frame.history[0];
           if (head && head.at === entry.at && head.eventId === entry.eventId) return;
           const next = [entry, ...frame.history];
@@ -386,25 +391,14 @@
     eventSources.clear();
   });
 
-  function formatRelative(ms: number): string {
-    const diff = Date.now() - ms;
-    if (diff < 1000) return 'just now';
-    if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-    return `${Math.floor(diff / 3_600_000)}h ago`;
-  }
-
   function formatAmount(microUnits: number): string {
     return (microUnits / API_MULTIPLIER).toFixed(2);
   }
 
   let busy = $state(false);
-  let error = $state<string | null>(null);
-  let info = $state<string | null>(null);
 
   // We're served by the LGS itself, so APIs are same-origin.
   const lgsBase = `${location.origin}`;
-  // For rgs_url passed to the game we need host:port (no scheme, the game adds https).
   const lgsHostPort = location.host;
 
   onMount(async () => {
@@ -412,7 +406,7 @@
     gameUrl = params.get('gameUrl') ?? '';
     gameSlug = params.get('gameSlug') ?? '';
     if (!gameUrl || !gameSlug) {
-      error = 'Missing game URL or slug. Open this page from the desktop launcher.';
+      toast.error('Missing game URL or slug. Open this page from the desktop launcher.');
       return;
     }
     try {
@@ -424,15 +418,13 @@
       await reloadSavedRounds();
       await loadGameModes();
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
       return;
     }
     await reloadAll();
   });
 
-  /** Read the mode list from the game's index.json (via LGS) and align the
-   *  current forcedMode / replayMode with what the game actually exposes.
-   *  Failure keeps the fallback ['base']; dropdowns still render. */
+  /** Read the mode list from the game's index.json. */
   async function loadGameModes() {
     if (!gameSlug) return;
     try {
@@ -442,12 +434,9 @@
       if (!modes.includes(forcedMode)) forcedMode = modes[0];
       if (!modes.includes(replayMode)) replayMode = modes[0];
     } catch (e) {
-      // Non-fatal: the dropdowns stay on the ['base'] fallback.
       console.warn('failed to load game modes:', e);
     }
   }
-
-  // ---- Resolution management ----
 
   async function toggleResolution(id: string, enabled: boolean) {
     busy = true;
@@ -455,14 +444,13 @@
       const s = await settingsHttp.toggle(id, enabled);
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions(frames);
-      // load any newly enabled frames
       const newlyEnabled = frames.filter((f) => f.src === null);
       for (const f of newlyEnabled) {
         await reloadFrame(f);
         await new Promise((r) => setTimeout(r, 600));
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -471,7 +459,7 @@
   async function addCustomResolution() {
     const label = newCustomLabel.trim();
     if (!label || newCustomWidth <= 0 || newCustomHeight <= 0) {
-      error = 'Label, width and height required.';
+      toast.error('Label, width and height required.');
       return;
     }
     busy = true;
@@ -482,10 +470,9 @@
       newCustomLabel = '';
       const last = frames[frames.length - 1];
       if (last && last.src === null) await reloadFrame(last);
-      info = `Added "${label}" (${newCustomWidth}×${newCustomHeight}).`;
-      setTimeout(() => (info = null), 2000);
+      toast.success(`Added "${label}" (${newCustomWidth}×${newCustomHeight})`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -499,7 +486,7 @@
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions(frames);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -544,20 +531,16 @@
 
   async function reloadAll() {
     busy = true;
-    error = null;
     try {
-      // Clear all iframes first, then load one at a time with a delay so each
-      // game gets time to initialize its WebGL context without racing the
-      // others (PixiJS shader compilation crashes under concurrent load).
+      // Clear all iframes first, then load one at a time to avoid WebGL races.
       frames.forEach((f) => (f.src = null));
       for (const f of frames) {
         await reloadFrame(f);
         await new Promise((r) => setTimeout(r, 800));
       }
-      info = `Reloaded ${frames.length} frames · balance=${balance} ${currency}`;
-      setTimeout(() => (info = null), 2500);
+      toast.success(`Reloaded ${frames.length} frames · balance=${balance} ${currency}`);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -565,11 +548,10 @@
 
   async function reloadOne(frame: FrameState) {
     busy = true;
-    error = null;
     try {
       await reloadFrame(frame);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
     }
@@ -582,9 +564,7 @@
 
   /** Cross-origin iframes don't let the parent pause their AudioContext. The
    *  only way to actually silence an iframe that's already playing is to
-   *  recycle it: clear src so the element is destroyed, then set it back after
-   *  a tick so Svelte creates a fresh iframe. The sessionId is preserved so
-   *  balance/history survive. */
+   *  recycle it. The sessionId is preserved so balance/history survive. */
   function remountIframe(frame: FrameState) {
     if (!frame.src) return;
     const src = frame.src;
@@ -597,7 +577,6 @@
   function toggleMute(frame: FrameState) {
     const wasMuted = frame.muted;
     frame.muted = !frame.muted;
-    // When re-muting a frame whose audio is already running, we must remount.
     if (!wasMuted && frame.muted) remountIframe(frame);
   }
 
@@ -617,37 +596,39 @@
   <title>Stake Dev Tool · Test view</title>
 </svelte:head>
 
-<div class="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+<Toaster position="top-right" richColors closeButton />
+
+<div class="flex h-screen overflow-hidden bg-background text-foreground">
   <!-- Sidebar -->
-  <aside class="flex h-screen w-96 flex-shrink-0 flex-col border-r border-zinc-800/60 bg-zinc-900/40">
+  <aside class="flex h-screen w-[440px] flex-shrink-0 flex-col border-r bg-card/30">
     <!-- Header -->
-    <div class="flex-shrink-0 border-b border-zinc-800/60 px-5 py-4">
-      <div class="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Game</div>
-      <div class="mt-0.5 truncate text-sm font-semibold text-zinc-100">{gameSlug || '—'}</div>
+    <div class="flex-shrink-0 border-b px-5 py-4">
+      <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Game</p>
+      <p class="mt-0.5 truncate text-sm font-semibold">{gameSlug || '—'}</p>
     </div>
 
     <!-- Scrollable sections -->
-    <div class="flex-1 overflow-y-auto px-5 py-4">
+    <div class="flex-1 space-y-5 overflow-y-auto px-5 py-4">
       <!-- ========== SESSION ========== -->
-      <section class="mb-5">
-        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-          Session
-        </div>
-
-        <div class="space-y-3">
-          <div>
-            <label for="initial-balance" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Session
+          </Card.Title>
+        </Card.Header>
+        <Card.Content class="space-y-3">
+          <div class="space-y-1.5">
+            <Label for="initial-balance" class="text-xs uppercase tracking-wider text-muted-foreground">
               Initial balance
-            </label>
+            </Label>
             <div class="flex gap-1.5">
-              <input
+              <Input
                 id="initial-balance"
-                name="initial-balance"
                 type="number"
                 bind:value={balance}
-                min="0"
-                step="100"
-                class="flex-1 rounded-md border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 font-mono text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                min={0}
+                step={100}
+                class="font-mono-tab flex-1"
               />
               <div class="w-36 flex-shrink-0">
                 <Picker
@@ -660,21 +641,18 @@
           </div>
 
           <div class="grid grid-cols-2 gap-2">
-            <div>
-              <div class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                Lang
-              </div>
+            <div class="space-y-1.5">
+              <Label class="text-xs uppercase tracking-wider text-muted-foreground">Lang</Label>
               <Picker items={LANGUAGES} value={language} onSelect={(l) => (language = l)} />
             </div>
-            <div>
-              <label for="device-select" class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+            <div class="space-y-1.5">
+              <Label for="device-select" class="text-xs uppercase tracking-wider text-muted-foreground">
                 Device
-              </label>
+              </Label>
               <select
                 id="device-select"
-                name="device-select"
                 bind:value={device}
-                class="w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-1.5 font-mono text-xs focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                class="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-8 w-full rounded-md border px-2 py-1 font-mono text-xs focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <option value="desktop">desktop</option>
                 <option value="mobile">mobile</option>
@@ -682,460 +660,412 @@
             </div>
           </div>
 
-          <button
-            type="button"
-            onclick={toggleSocial}
-            class="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border bg-zinc-950/40 px-2.5 py-1.5 text-xs transition {social
-              ? 'border-amber-700/60 text-amber-300 hover:bg-amber-950/30'
-              : 'border-zinc-800 text-zinc-300 hover:bg-zinc-800/60'}"
-          >
-            <span class="flex items-center gap-2">
-              <span class="text-xs">{social ? '🎰' : '💵'}</span>
-              Social casino
-            </span>
-            <span
-              class="rounded-full px-2 py-0.5 text-[10px] font-semibold {social
-                ? 'bg-amber-500/20 text-amber-300'
-                : 'bg-zinc-800 text-zinc-400'}"
-            >
-              {social ? 'ON' : 'OFF'}
-            </span>
-          </button>
+          <div class="flex items-center justify-between rounded-md border bg-card/50 px-3 py-2">
+            <Label for="social-toggle" class="flex items-center gap-2 text-xs">
+              <span>{social ? '🎰' : '💵'}</span>
+              <span>Social casino</span>
+            </Label>
+            <Switch id="social-toggle" checked={social} onCheckedChange={toggleSocial} />
+          </div>
 
-          <button
-            onclick={reloadAll}
-            disabled={busy}
-            class="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-500 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-3m2 8a8 8 0 01-14 3" />
-            </svg>
+          <Button onclick={reloadAll} disabled={busy} class="w-full" size="default">
+            <RefreshIcon class="h-4 w-4" />
             Apply &amp; reload all
-          </button>
+          </Button>
 
           <div class="grid grid-cols-2 gap-1.5">
-            <button
-              onclick={muteAll}
-              class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
-            >
+            <Button variant="outline" size="sm" onclick={muteAll}>
+              <VolumeOffIcon class="h-4 w-4" />
               Mute all
-            </button>
-            <button
-              onclick={unmuteAll}
-              class="rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:bg-zinc-800"
-            >
+            </Button>
+            <Button variant="outline" size="sm" onclick={unmuteAll}>
+              <VolumeIcon class="h-4 w-4" />
               Unmute all
-            </button>
+            </Button>
           </div>
-        </div>
-      </section>
+        </Card.Content>
+      </Card.Root>
 
       <!-- ========== EVENTS ========== -->
-      <section class="mb-5">
-        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-          Events
-        </div>
-
-        <!-- Force event -->
-        <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40 p-2">
-          <div class="mb-1 flex items-center justify-between">
-            <span class="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-              Force next event
-            </span>
-            {#if forcedEventBanner}
-              <button
-                onclick={clearForcedEvent}
-                disabled={busy}
-                class="text-[10px] text-amber-400 hover:text-amber-300"
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Events
+          </Card.Title>
+        </Card.Header>
+        <Card.Content class="space-y-2.5">
+          <!-- Force event -->
+          <div class="space-y-2 rounded-md border bg-card/50 p-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Force next event
+              </span>
+              {#if forcedEventBanner}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-5 px-1.5 text-xs text-amber-400 hover:text-amber-300"
+                  onclick={clearForcedEvent}
+                  disabled={busy}
+                >
+                  Clear
+                </Button>
+              {/if}
+            </div>
+            <div class="flex gap-1.5">
+              <select
+                bind:value={forcedMode}
+                class="border-input bg-background flex h-8 rounded-md border px-2 py-1 font-mono text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
-                Clear
-              </button>
+                {#each availableModes as m (m)}
+                  <option value={m}>{m}</option>
+                {/each}
+              </select>
+              <Input
+                type="number"
+                bind:value={forcedEventId}
+                min={1}
+                placeholder="eventId"
+                class="font-mono-tab h-9 flex-1 text-sm"
+              />
+              <Button size="sm" class="h-8" onclick={applyForcedEvent} disabled={busy}>
+                <ZapIcon class="h-4 w-4" />
+                Force
+              </Button>
+              <Tooltip.Provider delayDuration={300}>
+                <Tooltip.Root>
+                  <Tooltip.Trigger>
+                    {#snippet child({ props })}
+                      <Button
+                        {...props}
+                        variant="outline"
+                        size="icon"
+                        class="h-9 w-9"
+                        disabled={forcedEventId === null || forcedEventId <= 0}
+                        onclick={() => (showSaveInput = !showSaveInput)}
+                      >
+                        <StarIcon class="h-4 w-4" />
+                      </Button>
+                    {/snippet}
+                  </Tooltip.Trigger>
+                  <Tooltip.Content>Save this round for later</Tooltip.Content>
+                </Tooltip.Root>
+              </Tooltip.Provider>
+            </div>
+            {#if showSaveInput}
+              <div class="flex gap-1.5">
+                <Input
+                  type="text"
+                  bind:value={saveDescription}
+                  placeholder="Description (optional)"
+                  maxlength={120}
+                  onkeydown={(e) => e.key === 'Enter' && saveCurrentRound()}
+                  class="h-9 flex-1 text-sm"
+                />
+                <Button size="sm" class="h-8" onclick={saveCurrentRound} disabled={savingRound}>
+                  Save
+                </Button>
+              </div>
+            {/if}
+            {#if forcedEventBanner}
+              <div class="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-sm">
+                <Badge variant="secondary" class="bg-amber-500/20 text-amber-300">Active</Badge>
+                <span class="font-mono-tab text-amber-200">
+                  {forcedEventBanner.mode} #{forcedEventBanner.eventId}
+                </span>
+              </div>
             {/if}
           </div>
-          <div class="flex gap-1.5">
-            <select
-              bind:value={forcedMode}
-              class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-            >
-              {#each availableModes as m (m)}
-                <option value={m}>{m}</option>
-              {/each}
-            </select>
-            <input
-              type="number"
-              bind:value={forcedEventId}
-              min="1"
-              placeholder="eventId"
-              class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-            />
+
+          <!-- Saved rounds -->
+          <div class="rounded-md border bg-card/50">
             <button
-              onclick={applyForcedEvent}
-              disabled={busy}
-              class="rounded bg-amber-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-amber-400 disabled:opacity-40"
+              onclick={() => (showSavedRounds = !showSavedRounds)}
+              class="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground transition hover:text-foreground"
             >
-              Force
+              <span class="flex items-center gap-2">
+                <StarIcon class="h-4 w-4" />
+                Saved rounds ({savedRounds.length})
+              </span>
+              <ChevronDownIcon class="h-4 w-4 transition {showSavedRounds ? 'rotate-180' : ''}" />
             </button>
-            <button
-              onclick={() => (showSaveInput = !showSaveInput)}
-              disabled={forcedEventId === null || forcedEventId <= 0}
-              title="Save this round for later"
-              class="rounded border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
-            >
-              ★
-            </button>
+            {#if showSavedRounds}
+              <Separator />
+              <div class="p-2">
+                {#if savedRounds.length === 0}
+                  <p class="text-xs text-muted-foreground">
+                    No saved rounds yet. Force an event then click ★ to bookmark.
+                  </p>
+                {:else}
+                  <div class="max-h-56 space-y-1 overflow-y-auto">
+                    {#each savedRounds as r (r.id)}
+                      <div class="group flex items-center gap-1.5 rounded px-1.5 py-1 transition hover:bg-muted/50">
+                        <button
+                          onclick={() => applySavedRound(r)}
+                          disabled={busy}
+                          title="Force this round"
+                          class="flex min-w-0 flex-1 flex-col items-start text-left"
+                        >
+                          <span class="flex w-full items-baseline gap-1.5">
+                            <span class="font-mono-tab text-sm text-sky-400">{r.mode}</span>
+                            <span class="font-mono-tab text-sm font-semibold">#{r.eventId}</span>
+                          </span>
+                          {#if r.description}
+                            <span class="w-full truncate text-xs text-muted-foreground">{r.description}</span>
+                          {/if}
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-destructive"
+                          onclick={() => deleteSavedRound(r)}
+                          aria-label="Delete saved round"
+                        >
+                          <XIcon class="h-4 w-4" />
+                        </Button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/if}
           </div>
-          {#if showSaveInput}
-            <div class="mt-1.5 flex gap-1.5">
-              <input
-                type="text"
-                bind:value={saveDescription}
-                placeholder="Description (optional)"
-                maxlength="120"
-                onkeydown={(e) => e.key === 'Enter' && saveCurrentRound()}
-                class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-[11px] focus:border-emerald-500/40 focus:outline-none"
-              />
-              <button
-                onclick={saveCurrentRound}
-                disabled={savingRound}
-                class="rounded bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
-              >
-                Save
-              </button>
-            </div>
-          {/if}
-          {#if forcedEventBanner}
-            <div class="mt-1.5 rounded bg-amber-500/10 px-2 py-1 text-[10px] text-amber-300">
-              Active: <span class="font-mono">{forcedEventBanner.mode} #{forcedEventBanner.eventId}</span>
-            </div>
-          {/if}
-        </div>
 
-        <!-- Saved rounds -->
-        <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40">
-          <button
-            onclick={() => (showSavedRounds = !showSavedRounds)}
-            class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:text-zinc-200"
-          >
-            <span>Saved rounds ({savedRounds.length})</span>
-            <svg
-              class="h-3 w-3 transition {showSavedRounds ? 'rotate-180' : ''}"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              viewBox="0 0 24 24"
+          <!-- Notable rounds -->
+          <div class="rounded-md border bg-card/50">
+            <button
+              onclick={toggleNotablePanel}
+              class="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground transition hover:text-foreground"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {#if showSavedRounds}
-            <div class="border-t border-zinc-800/60 p-2">
-              {#if savedRounds.length === 0}
-                <div class="text-[10px] text-zinc-600">
-                  No saved rounds yet. Enter a mode + event id above and click ★ to bookmark.
-                </div>
-              {:else}
-                <div class="max-h-56 space-y-1 overflow-y-auto">
-                  {#each savedRounds as r (r.id)}
-                    <div class="group flex items-center gap-1.5 rounded px-1.5 py-1 transition hover:bg-zinc-800/40">
-                      <button
-                        onclick={() => applySavedRound(r)}
-                        disabled={busy}
-                        title="Force this round"
-                        class="flex min-w-0 flex-1 flex-col items-start text-left"
-                      >
-                        <span class="flex w-full items-baseline gap-1.5">
-                          <span class="font-mono text-[11px] text-sky-300">{r.mode}</span>
-                          <span class="font-mono text-[11px] font-semibold text-zinc-100">#{r.eventId}</span>
-                        </span>
-                        {#if r.description}
-                          <span class="w-full truncate text-[10px] text-zinc-400">{r.description}</span>
-                        {/if}
-                      </button>
-                      <button
-                        onclick={() => deleteSavedRound(r)}
-                        title="Delete"
-                        class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
-                      >
-                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </div>
-
-        <!-- Notable rounds (auto-detected from books) -->
-        <div class="mb-2 rounded-md border border-zinc-800 bg-zinc-950/40">
-          <button
-            onclick={toggleNotablePanel}
-            class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:text-zinc-200"
-          >
-            <span>
-              Notable rounds
-              {#if notableLoaded}
-                <span class="text-zinc-600">({notableRounds.length})</span>
-              {/if}
-            </span>
-            <svg
-              class="h-3 w-3 transition {showNotable ? 'rotate-180' : ''}"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              viewBox="0 0 24 24"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {#if showNotable}
-            <div class="border-t border-zinc-800/60 p-2">
-              {#if notableLoading}
-                <div class="text-[10px] text-zinc-500">Loading…</div>
-              {:else if notableRounds.length === 0}
-                <div class="text-[10px] text-zinc-600">
-                  No modes detected. Make sure the math folder has weights.
-                </div>
-              {:else}
-                <div class="text-[9px] uppercase tracking-wider text-zinc-600 mb-1">
-                  Auto-picked from each mode's lookup table. Click ★ to bookmark.
-                </div>
-                <div class="max-h-72 space-y-2 overflow-y-auto">
-                  {#each notableRounds as m (m.mode)}
-                    <div class="rounded border border-zinc-800/60 bg-zinc-950/40 p-1.5">
-                      <div class="mb-1 font-mono text-[11px] font-semibold text-sky-300">
-                        {m.mode}
+              <span class="flex items-center gap-2">
+                <ZapIcon class="h-4 w-4" />
+                Notable rounds
+                {#if notableLoaded}
+                  <Badge variant="secondary" class="h-4 px-1 text-xs">{notableRounds.length}</Badge>
+                {/if}
+              </span>
+              <ChevronDownIcon class="h-4 w-4 transition {showNotable ? 'rotate-180' : ''}" />
+            </button>
+            {#if showNotable}
+              <Separator />
+              <div class="p-2">
+                {#if notableLoading}
+                  <p class="text-xs text-muted-foreground">Loading…</p>
+                {:else if notableRounds.length === 0}
+                  <p class="text-xs text-muted-foreground">
+                    No modes detected. Make sure the math folder has weights.
+                  </p>
+                {:else}
+                  <p class="mb-1.5 text-xs uppercase tracking-wider text-muted-foreground">
+                    Auto-picked from each mode's lookup table.
+                  </p>
+                  <div class="max-h-72 space-y-2 overflow-y-auto">
+                    {#each notableRounds as m (m.mode)}
+                      <div class="rounded border bg-background/50 p-2">
+                        <div class="mb-1 font-mono-tab text-sm font-semibold text-sky-400">
+                          {m.mode}
+                        </div>
+                        <div class="space-y-0.5">
+                          {#each [
+                            { kind: 'min' as const, label: 'min', bet: m.stats.min, color: 'text-muted-foreground' },
+                            { kind: 'avg' as const, label: 'avg', bet: m.stats.avg, color: 'text-amber-400' },
+                            { kind: 'max' as const, label: 'max', bet: m.stats.max, color: 'text-emerald-400' }
+                          ] as row (row.kind)}
+                            {@const bk = isBookmarked(m.mode, row.bet.eventId)}
+                            <div class="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-muted/40">
+                              <span class="w-7 text-xs uppercase tracking-wider text-muted-foreground">
+                                {row.label}
+                              </span>
+                              <span class="font-mono-tab text-sm {row.color}">
+                                #{row.bet.eventId}
+                              </span>
+                              <span class="ml-auto font-mono-tab text-xs text-muted-foreground">
+                                ×{(row.bet.payoutMultiplier / 100).toFixed(2)}
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                class="h-5 px-1.5 text-xs"
+                                onclick={() => applyForcedFromNotable(m.mode, row.bet.eventId)}
+                                disabled={busy}
+                              >
+                                Force
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                class="h-7 w-7 {bk
+                                  ? 'cursor-default text-amber-400'
+                                  : 'text-muted-foreground hover:text-amber-400'}"
+                                disabled={bk}
+                                onclick={() => bookmarkNotable(m.mode, row.bet.eventId, row.kind)}
+                                aria-label={bk ? 'Already bookmarked' : 'Bookmark'}
+                              >
+                                <StarIcon class="h-4 w-4 {bk ? 'fill-amber-400' : ''}" />
+                              </Button>
+                            </div>
+                          {/each}
+                        </div>
                       </div>
-                      <div class="space-y-0.5">
-                        {#each [
-                          { kind: 'min' as const, label: 'min', bet: m.stats.min, color: 'text-zinc-400' },
-                          { kind: 'avg' as const, label: 'avg', bet: m.stats.avg, color: 'text-amber-300' },
-                          { kind: 'max' as const, label: 'max', bet: m.stats.max, color: 'text-emerald-300' }
-                        ] as row (row.kind)}
-                          {@const bk = isBookmarked(m.mode, row.bet.eventId)}
-                          <div class="flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-zinc-800/40">
-                            <span class="w-7 text-[9px] uppercase tracking-wider text-zinc-500">
-                              {row.label}
-                            </span>
-                            <span class="font-mono text-[11px] {row.color}">
-                              #{row.bet.eventId}
-                            </span>
-                            <span class="ml-auto font-mono text-[10px] text-zinc-500">
-                              ×{(row.bet.payoutMultiplier / 100).toFixed(2)}
-                            </span>
-                            <button
-                              onclick={() => applyForcedFromNotable(m.mode, row.bet.eventId)}
-                              disabled={busy}
-                              title="Force this round"
-                              class="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-300 transition hover:bg-amber-500 hover:text-zinc-950 disabled:opacity-40"
-                            >
-                              Force
-                            </button>
-                            <button
-                              onclick={() => bookmarkNotable(m.mode, row.bet.eventId, row.kind)}
-                              disabled={bk}
-                              title={bk ? 'Already bookmarked' : `Bookmark as "${row.kind === 'min' ? 'min' : row.kind === 'avg' ? 'average win' : 'max win'}"`}
-                              class="leading-none transition {bk
-                                ? 'cursor-default text-amber-400'
-                                : 'text-zinc-600 hover:text-amber-400'}"
-                            >
-                              {bk ? '★' : '☆'}
-                            </button>
-                          </div>
-                        {/each}
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </div>
 
-        <!-- Replay -->
-        <div class="rounded-md border border-zinc-800 bg-zinc-950/40">
-          <button
-            onclick={() => (showReplay = !showReplay)}
-            class="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:text-zinc-200"
-          >
-            <span>Replay event</span>
-            <svg
-              class="h-3 w-3 transition {showReplay ? 'rotate-180' : ''}"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              viewBox="0 0 24 24"
+          <!-- Replay -->
+          <div class="rounded-md border bg-card/50">
+            <button
+              onclick={() => (showReplay = !showReplay)}
+              class="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground transition hover:text-foreground"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {#if showReplay}
-            <div class="border-t border-zinc-800/60 p-2">
-              <div class="flex gap-1.5">
-                <select
-                  bind:value={replayMode}
-                  class="rounded border border-zinc-800 bg-zinc-950/60 px-1.5 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-                >
-                  {#each availableModes as m (m)}
-                    <option value={m}>{m}</option>
-                  {/each}
-                </select>
-                <input
-                  type="number"
-                  bind:value={replayEventId}
-                  min="1"
-                  placeholder="eventId"
-                  class="flex-1 rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-[11px] focus:border-emerald-500/40 focus:outline-none"
-                />
-                <button
-                  onclick={() => frames[0] && launchReplay(frames[0])}
-                  disabled={busy || frames.length === 0}
-                  title="Load replay in the first frame"
-                  class="rounded bg-sky-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 transition hover:bg-sky-400 disabled:opacity-40"
-                >
-                  Load
-                </button>
+              <span class="flex items-center gap-2">
+                <RewindIcon class="h-4 w-4" />
+                Replay event
+              </span>
+              <ChevronDownIcon class="h-4 w-4 transition {showReplay ? 'rotate-180' : ''}" />
+            </button>
+            {#if showReplay}
+              <Separator />
+              <div class="space-y-1.5 p-2">
+                <div class="flex gap-1.5">
+                  <select
+                    bind:value={replayMode}
+                    class="border-input bg-background flex h-8 rounded-md border px-2 py-1 font-mono text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    {#each availableModes as m (m)}
+                      <option value={m}>{m}</option>
+                    {/each}
+                  </select>
+                  <Input
+                    type="number"
+                    bind:value={replayEventId}
+                    min={1}
+                    placeholder="eventId"
+                    class="font-mono-tab h-9 flex-1 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    class="h-8 bg-sky-500 text-zinc-950 hover:bg-sky-400"
+                    disabled={busy || frames.length === 0}
+                    onclick={() => frames[0] && launchReplay(frames[0])}
+                  >
+                    Load
+                  </Button>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  Loads into the top-left frame. No session, no RNG — just the event outcome.
+                </p>
               </div>
-              <div class="mt-1 text-[10px] text-zinc-600">
-                Loads into the top-left frame. No session, no RNG — just the event outcome.
-              </div>
-            </div>
-          {/if}
-        </div>
-      </section>
+            {/if}
+          </div>
+        </Card.Content>
+      </Card.Root>
 
       <!-- ========== LAYOUT ========== -->
-      <section>
-        <div class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-          Layout
-        </div>
-
-        <div class="rounded-md border border-zinc-800 bg-zinc-950/40">
-          <button
-            onclick={() => (showManage = !showManage)}
-            class="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-medium text-zinc-300 transition hover:text-zinc-100"
-          >
-            <span class="flex items-center gap-2">
-              <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
-              </svg>
-              Resolutions ({allResolutions.filter((r) => r.enabled).length}/{allResolutions.length})
-            </span>
-            <svg
-              class="h-3 w-3 text-zinc-500 transition {showManage ? 'rotate-180' : ''}"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              viewBox="0 0 24 24"
+      <Card.Root>
+        <Card.Header class="pb-3">
+          <Card.Title class="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Layout
+          </Card.Title>
+        </Card.Header>
+        <Card.Content>
+          <div class="rounded-md border bg-card/50">
+            <button
+              onclick={() => (showManage = !showManage)}
+              class="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-sm font-medium transition hover:text-foreground"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {#if showManage}
-            <div class="border-t border-zinc-800/60 p-2">
-              <div class="mb-2 max-h-64 space-y-1 overflow-y-auto">
-                {#each allResolutions as r (r.id)}
-                  <div
-                    class="group flex items-center gap-2 rounded px-1.5 py-1 transition hover:bg-zinc-800/40"
-                  >
-                    <input
-                      id="res-{r.id}"
-                      name="res-{r.id}"
-                      type="checkbox"
-                      checked={r.enabled}
-                      onchange={(e) => toggleResolution(r.id, (e.currentTarget as HTMLInputElement).checked)}
-                      disabled={busy}
-                      class="accent-emerald-500"
-                    />
-                    <label for="res-{r.id}" class="flex-1 cursor-pointer text-xs">
-                      <span class="text-zinc-100">{r.label}</span>
-                      <span class="ml-1.5 font-mono text-[10px] text-zinc-500">{r.width}×{r.height}</span>
-                      {#if !r.builtin}
-                        <span
-                          class="ml-1 rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-300"
-                          >custom</span
-                        >
-                      {/if}
-                    </label>
-                    {#if !r.builtin}
-                      <button
-                        onclick={() => deleteCustomResolution(r.id)}
+              <span class="flex items-center gap-2">
+                <LayoutIcon class="h-4 w-4" />
+                Resolutions ({allResolutions.filter((r) => r.enabled).length}/{allResolutions.length})
+              </span>
+              <ChevronDownIcon class="h-4 w-4 text-muted-foreground transition {showManage ? 'rotate-180' : ''}" />
+            </button>
+            {#if showManage}
+              <Separator />
+              <div class="p-2">
+                <div class="mb-2 max-h-64 space-y-1 overflow-y-auto">
+                  {#each allResolutions as r (r.id)}
+                    <div class="group flex items-center gap-2 rounded px-1.5 py-1 transition hover:bg-muted/50">
+                      <Checkbox
+                        id="res-{r.id}"
+                        checked={r.enabled}
+                        onCheckedChange={(v) => toggleResolution(r.id, v === true)}
                         disabled={busy}
-                        title="Delete custom resolution"
-                        class="rounded p-0.5 text-zinc-600 opacity-0 transition hover:bg-red-950/50 hover:text-red-400 group-hover:opacity-100"
-                      >
-                        <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    {/if}
+                      />
+                      <Label for="res-{r.id}" class="flex-1 cursor-pointer text-xs font-normal">
+                        <span>{r.label}</span>
+                        <span class="ml-1.5 font-mono-tab text-xs text-muted-foreground">
+                          {r.width}×{r.height}
+                        </span>
+                        {#if !r.builtin}
+                          <Badge variant="secondary" class="ml-1 h-4 bg-amber-500/15 px-1 text-xs text-amber-300">
+                            custom
+                          </Badge>
+                        {/if}
+                      </Label>
+                      {#if !r.builtin}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          class="h-7 w-7 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:text-destructive"
+                          onclick={() => deleteCustomResolution(r.id)}
+                          disabled={busy}
+                          aria-label="Delete custom resolution"
+                        >
+                          <TrashIcon class="h-4 w-4" />
+                        </Button>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+
+                <Separator class="my-2" />
+                <div class="space-y-1.5">
+                  <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Add custom
+                  </p>
+                  <Input
+                    type="text"
+                    bind:value={newCustomLabel}
+                    placeholder="Label (e.g. iPad)"
+                    class="h-8 text-xs"
+                  />
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <Input
+                      type="number"
+                      bind:value={newCustomWidth}
+                      min={1}
+                      max={4096}
+                      placeholder="Width"
+                      class="font-mono-tab h-8 text-xs"
+                    />
+                    <Input
+                      type="number"
+                      bind:value={newCustomHeight}
+                      min={1}
+                      max={4096}
+                      placeholder="Height"
+                      class="font-mono-tab h-8 text-xs"
+                    />
                   </div>
-                {/each}
-              </div>
-
-              <div class="border-t border-zinc-800 pt-2">
-                <div class="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-                  Add custom
+                  <Button
+                    size="sm"
+                    class="w-full"
+                    onclick={addCustomResolution}
+                    disabled={busy || !newCustomLabel.trim()}
+                  >
+                    <PlusIcon class="h-4 w-4" />
+                    Add
+                  </Button>
                 </div>
-                <input
-                  type="text"
-                  bind:value={newCustomLabel}
-                  placeholder="Label (e.g. iPad)"
-                  class="mb-1.5 w-full rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 text-xs focus:border-emerald-500/40 focus:outline-none"
-                />
-                <div class="mb-1.5 grid grid-cols-2 gap-1.5">
-                  <input
-                    type="number"
-                    bind:value={newCustomWidth}
-                    min="1"
-                    max="4096"
-                    placeholder="Width"
-                    class="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-xs focus:border-emerald-500/40 focus:outline-none"
-                  />
-                  <input
-                    type="number"
-                    bind:value={newCustomHeight}
-                    min="1"
-                    max="4096"
-                    placeholder="Height"
-                    class="rounded border border-zinc-800 bg-zinc-950/60 px-2 py-1 font-mono text-xs focus:border-emerald-500/40 focus:outline-none"
-                  />
-                </div>
-                <button
-                  onclick={addCustomResolution}
-                  disabled={busy || !newCustomLabel.trim()}
-                  class="w-full rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
-                >
-                  + Add
-                </button>
               </div>
-            </div>
-          {/if}
-        </div>
-      </section>
+            {/if}
+          </div>
+        </Card.Content>
+      </Card.Root>
     </div>
-
-    <!-- Footer: messages -->
-    {#if info || error}
-      <div class="flex-shrink-0 space-y-2 border-t border-zinc-800/60 px-5 py-3">
-        {#if info}
-          <div
-            class="rounded-md border border-emerald-900/40 bg-emerald-950/30 px-2.5 py-1.5 text-[11px] text-emerald-300"
-          >
-            {info}
-          </div>
-        {/if}
-        {#if error}
-          <div
-            class="rounded-md border border-red-900/40 bg-red-950/30 px-2.5 py-1.5 text-[11px] text-red-300"
-          >
-            {error}
-          </div>
-        {/if}
-      </div>
-    {/if}
   </aside>
 
   <!-- Frames area -->
@@ -1143,81 +1073,105 @@
     <div class="flex flex-wrap gap-6">
       {#each frames as frame (frame.res.id)}
         <div class="flex flex-col">
-          <div class="mb-1.5 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2 text-xs">
-              <span class="font-semibold text-zinc-100">{frame.res.label}</span>
-              <span class="font-mono text-zinc-500">
+          <!-- Frame header -->
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="font-semibold">{frame.res.label}</span>
+              <span class="font-mono-tab text-muted-foreground">
                 {frame.res.width}×{frame.res.height}
               </span>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button
-                onclick={() => toggleMute(frame)}
-                title={frame.muted ? 'Unmute (allow audio)' : 'Mute (block clicks → suspend audio)'}
-                class="rounded border border-zinc-800 bg-zinc-900/60 p-1 transition hover:bg-zinc-800 {frame.muted
-                  ? 'text-amber-400'
-                  : 'text-emerald-400'}"
-              >
-                {#if frame.muted}
-                  <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l4-4m0 4l-4-4" />
-                  </svg>
-                {:else}
-                  <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M19.07 4.93a10 10 0 010 14.14" />
-                  </svg>
-                {/if}
-              </button>
-              <button
-                onclick={() => reloadOne(frame)}
-                disabled={busy}
-                title="Reload this frame"
-                class="rounded border border-zinc-800 bg-zinc-900/60 p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
-              >
-                <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114-3m2 8a8 8 0 01-14 3" />
-                </svg>
-              </button>
-              <button
-                onclick={() => openInBrowser(frame)}
-                disabled={busy || !frame.src}
-                title="Open in new tab"
-                class="rounded border border-zinc-800 bg-zinc-900/60 p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
-              >
-                <svg class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M14 3h7v7m0 -7L10 14M5 5h4v4M5 19h14v-4" />
-                </svg>
-              </button>
+            <div class="flex items-center gap-1">
+              <Tooltip.Provider delayDuration={300}>
+                <Tooltip.Root>
+                  <Tooltip.Trigger>
+                    {#snippet child({ props })}
+                      <Button
+                        {...props}
+                        variant="outline"
+                        size="icon"
+                        class="h-9 w-9 {frame.muted ? 'text-amber-400' : 'text-emerald-400'}"
+                        onclick={() => toggleMute(frame)}
+                      >
+                        {#if frame.muted}
+                          <VolumeOffIcon class="h-4 w-4" />
+                        {:else}
+                          <VolumeIcon class="h-4 w-4" />
+                        {/if}
+                      </Button>
+                    {/snippet}
+                  </Tooltip.Trigger>
+                  <Tooltip.Content>
+                    {frame.muted ? 'Unmute (allow audio)' : 'Mute (suspend audio)'}
+                  </Tooltip.Content>
+                </Tooltip.Root>
+
+                <Tooltip.Root>
+                  <Tooltip.Trigger>
+                    {#snippet child({ props })}
+                      <Button
+                        {...props}
+                        variant="outline"
+                        size="icon"
+                        class="h-9 w-9"
+                        onclick={() => reloadOne(frame)}
+                        disabled={busy}
+                      >
+                        <RefreshIcon class="h-4 w-4" />
+                      </Button>
+                    {/snippet}
+                  </Tooltip.Trigger>
+                  <Tooltip.Content>Reload this frame</Tooltip.Content>
+                </Tooltip.Root>
+
+                <Tooltip.Root>
+                  <Tooltip.Trigger>
+                    {#snippet child({ props })}
+                      <Button
+                        {...props}
+                        variant="outline"
+                        size="icon"
+                        class="h-9 w-9"
+                        onclick={() => openInBrowser(frame)}
+                        disabled={busy || !frame.src}
+                      >
+                        <ExternalLinkIcon class="h-4 w-4" />
+                      </Button>
+                    {/snippet}
+                  </Tooltip.Trigger>
+                  <Tooltip.Content>Open in new tab</Tooltip.Content>
+                </Tooltip.Root>
+              </Tooltip.Provider>
             </div>
           </div>
-          <!-- Big last-event strip (above the iframe, full-width of frame) -->
+
+          <!-- Last-event strip -->
           <div
-            class="mb-1 flex items-center gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1.5"
+            class="mb-1.5 flex items-center gap-3 rounded-md border bg-card/50 px-3 py-2"
             style="width: {frame.res.width}px;"
           >
             {#if frame.history[0]}
               {@const last = frame.history[0]}
               {@const lm = last.payoutMultiplier / 100}
               {@const hit = lm > 0}
-              <div class="flex items-baseline gap-2.5 text-sm">
-                <span class="text-[10px] uppercase tracking-wider text-zinc-500">Last</span>
-                <span class="font-mono font-semibold text-sky-300">#{last.eventId}</span>
-                <span class="font-mono text-base font-bold {hit ? 'text-emerald-400' : 'text-zinc-500'}">
+              <div class="flex items-baseline gap-3 text-base">
+                <span class="text-xs uppercase tracking-wider text-muted-foreground">Last</span>
+                <span class="font-mono-tab font-semibold text-sky-400">#{last.eventId}</span>
+                <span class="font-mono-tab text-lg font-bold {hit ? 'text-emerald-400' : 'text-muted-foreground'}">
                   ×{lm.toFixed(2)}
                 </span>
-                <span class="font-mono text-xs text-zinc-400">
+                <span class="font-mono-tab text-sm text-muted-foreground">
                   bet {formatAmount(last.betAmount)} · win {formatAmount(last.payout)}
                 </span>
               </div>
             {:else}
-              <span class="text-xs text-zinc-600">Waiting for first spin…</span>
+              <span class="text-xs text-muted-foreground">Waiting for first spin…</span>
             {/if}
           </div>
 
+          <!-- Iframe -->
           <div
-            class="relative overflow-hidden rounded-lg border border-zinc-800/60 bg-black shadow-xl"
+            class="relative overflow-hidden rounded-lg border bg-black shadow-xl"
             style="width: {frame.res.width}px; height: {frame.res.height}px;"
           >
             {#if frame.src}
@@ -1229,15 +1183,12 @@
                 allowfullscreen
               ></iframe>
             {:else}
-              <div class="flex h-full w-full items-center justify-center text-xs text-zinc-600">
+              <div class="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
                 Loading…
               </div>
             {/if}
 
             {#if frame.muted && frame.src}
-              <!-- Click-blocking transparent overlay. Browsers gate audio behind
-                   user gestures; without clicks the iframe's AudioContext stays
-                   suspended → effectively muted. -->
               <button
                 onclick={() => toggleMute(frame)}
                 class="group absolute inset-0 z-10 flex cursor-pointer items-center justify-center bg-black/0 transition hover:bg-black/30"
@@ -1245,36 +1196,33 @@
                 aria-label="Unmute"
               >
                 <span class="rounded-full bg-zinc-900/80 p-2 text-amber-400 opacity-0 ring-1 ring-amber-500/30 transition group-hover:opacity-100">
-                  <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 14l4-4m0 4l-4-4" />
-                  </svg>
+                  <VolumeOffIcon class="h-4 w-4" />
                 </span>
               </button>
             {/if}
           </div>
 
-          <!-- History toggle (directly below the iframe so the panel it
-               opens lives in the same vertical zone as its trigger) -->
+          <!-- History toggle -->
           <button
             onclick={() => (frame.showHistory = !frame.showHistory)}
             disabled={frame.history.length === 0}
             title="Toggle event history"
             style="width: {frame.res.width}px;"
-            class="mt-1 flex items-center justify-between gap-2 rounded-md border border-zinc-800/60 bg-zinc-900/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+            class="mt-1.5 flex items-center justify-between gap-2 rounded-md border bg-card/50 px-3 py-2 text-sm font-medium uppercase tracking-wider text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:opacity-40"
           >
-            <span>Bet history ({frame.history.length})</span>
-            <svg class="h-3 w-3 transition {frame.showHistory ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
+            <span class="flex items-center gap-1.5">
+              <HistoryIcon class="h-4 w-4" />
+              Bet history ({frame.history.length})
+            </span>
+            <ChevronDownIcon class="h-4 w-4 transition {frame.showHistory ? 'rotate-180' : ''}" />
           </button>
 
           {#if frame.showHistory && frame.history.length > 0}
             <div
-              class="mt-1 overflow-hidden rounded-md border border-zinc-800/60 bg-zinc-950/40"
+              class="mt-1 overflow-hidden rounded-md border bg-card/50"
               style="width: {frame.res.width}px;"
             >
-              <div class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-800 bg-zinc-900/60 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              <div class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b bg-muted/30 px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 <span></span>
                 <span>#</span>
                 <span>Event</span>
@@ -1283,12 +1231,12 @@
                 <span>Mult</span>
                 <span>Win</span>
               </div>
-              <div class="max-h-64 overflow-y-auto font-mono text-xs">
+              <div class="max-h-72 overflow-y-auto font-mono-tab text-sm">
                 {#each frame.history as entry, i (entry.at + '-' + entry.eventId)}
                   {@const hit = entry.payout > 0}
                   {@const bookmarked = isBookmarked(entry.mode, entry.eventId)}
                   <div
-                    class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b border-zinc-900/40 px-3 py-1 transition hover:bg-zinc-800/30 {entry.forced
+                    class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b px-3 py-1.5 transition hover:bg-muted/30 {entry.forced
                       ? 'bg-amber-500/5'
                       : ''}"
                   >
@@ -1298,31 +1246,35 @@
                       title={bookmarked ? 'Already bookmarked' : 'Bookmark this round'}
                       class="leading-none transition {bookmarked
                         ? 'cursor-default text-amber-400'
-                        : 'text-zinc-600 hover:text-amber-400'}"
+                        : 'text-muted-foreground hover:text-amber-400'}"
                     >
-                      {bookmarked ? '★' : '☆'}
+                      {#if bookmarked}
+                        <StarIcon class="h-4 w-4 fill-amber-400" />
+                      {:else}
+                        <StarIcon class="h-4 w-4" />
+                      {/if}
                     </button>
-                    <span class="text-zinc-600">{i + 1}</span>
-                    <span class="font-semibold text-sky-300">#{entry.eventId}</span>
-                    <span class="truncate text-zinc-400">
+                    <span class="text-muted-foreground">{i + 1}</span>
+                    <span class="font-semibold text-sky-400">#{entry.eventId}</span>
+                    <span class="truncate text-muted-foreground">
                       {entry.mode}
                       {#if entry.forced}
-                        <span class="ml-1 rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-semibold text-amber-300">
+                        <Badge variant="secondary" class="ml-1 h-4 bg-amber-500/20 px-1 text-xs text-amber-300">
                           FORCED
-                        </span>
+                        </Badge>
                       {/if}
                     </span>
-                    <span class="text-zinc-400">{formatAmount(entry.betAmount)}</span>
-                    <span class="{hit ? 'text-emerald-400' : 'text-zinc-600'}">
+                    <span class="text-muted-foreground">{formatAmount(entry.betAmount)}</span>
+                    <span class={hit ? 'text-emerald-400' : 'text-muted-foreground'}>
                       ×{(entry.payoutMultiplier / 100).toFixed(2)}
                     </span>
-                    <span class="{hit ? 'text-emerald-400' : 'text-zinc-600'}">
+                    <span class={hit ? 'text-emerald-400' : 'text-muted-foreground'}>
                       {formatAmount(entry.payout)}
                     </span>
                   </div>
                 {/each}
               </div>
-              <div class="border-t border-zinc-800 bg-zinc-900/40 px-3 py-1 text-[10px] text-zinc-500">
+              <div class="border-t bg-muted/20 px-3 py-1 text-xs text-muted-foreground">
                 Last 100 spins, newest first. Resets when the frame is reloaded.
               </div>
             </div>
@@ -1331,84 +1283,46 @@
       {/each}
     </div>
   </main>
+</div>
 
-  {#if bookmarkModal}
-    <!-- Backdrop + centered modal. Click backdrop or Esc to cancel. -->
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="bookmark-modal-title"
-      tabindex="-1"
-      onkeydown={(e) => {
-        if (e.key === 'Escape') closeBookmarkModal();
-      }}
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-    >
-      <button
-        type="button"
-        aria-label="Close"
-        onclick={closeBookmarkModal}
-        class="absolute inset-0 cursor-default"
-      ></button>
-      <div
-        class="relative w-[420px] max-w-[90vw] rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
-      >
-        <div class="mb-3 flex items-center justify-between">
-          <h2 id="bookmark-modal-title" class="text-sm font-semibold text-zinc-100">
-            Bookmark this round
-          </h2>
-          <button
-            onclick={closeBookmarkModal}
-            class="rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200"
-            aria-label="Cancel"
-          >
-            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <div class="mb-3 flex items-baseline gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-2">
-          <span class="text-[10px] uppercase tracking-wider text-zinc-500">Round</span>
-          <span class="font-mono text-sm text-sky-300">{bookmarkModal.mode}</span>
-          <span class="font-mono text-sm font-semibold text-zinc-100">
-            #{bookmarkModal.eventId}
-          </span>
-        </div>
-        <label
-          for="bookmark-description"
-          class="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500"
-        >
+<!-- Bookmark dialog -->
+<Dialog.Root open={bookmarkModal !== null} onOpenChange={(o) => !o && closeBookmarkModal()}>
+  <Dialog.Content class="sm:max-w-md">
+    <Dialog.Header>
+      <Dialog.Title>Bookmark this round</Dialog.Title>
+      <Dialog.Description>
+        Save this event id for quick replay later.
+      </Dialog.Description>
+    </Dialog.Header>
+    {#if bookmarkModal}
+      <div class="flex items-baseline gap-2 rounded-md border bg-card/50 px-3 py-2">
+        <span class="text-xs uppercase tracking-wider text-muted-foreground">Round</span>
+        <span class="font-mono-tab text-sm text-sky-400">{bookmarkModal.mode}</span>
+        <span class="font-mono-tab text-sm font-semibold">#{bookmarkModal.eventId}</span>
+      </div>
+      <div class="space-y-1.5">
+        <Label for="bookmark-description" class="text-xs uppercase tracking-wider text-muted-foreground">
           Description (optional)
-        </label>
-        <input
+        </Label>
+        <Input
           id="bookmark-description"
           type="text"
-          bind:this={bookmarkInputEl}
+          bind:ref={bookmarkInputEl}
           bind:value={bookmarkModal.description}
           placeholder="e.g. Big bonus trigger, near miss, …"
-          maxlength="120"
+          maxlength={120}
           onkeydown={(e) => {
             if (e.key === 'Enter') confirmBookmark();
           }}
-          class="mb-4 w-full rounded-md border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
         />
-        <div class="flex justify-end gap-2">
-          <button
-            onclick={closeBookmarkModal}
-            class="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800"
-          >
-            Cancel
-          </button>
-          <button
-            onclick={confirmBookmark}
-            disabled={bookmarkModal.saving}
-            class="flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
-          >
-            <span>★</span>
-            {bookmarkModal.saving ? 'Saving…' : 'Bookmark'}
-          </button>
-        </div>
       </div>
-    </div>
-  {/if}
-</div>
+      <Dialog.Footer>
+        <Button variant="outline" onclick={closeBookmarkModal}>Cancel</Button>
+        <Button onclick={confirmBookmark} disabled={bookmarkModal.saving}>
+          <StarIcon class="h-4 w-4" />
+          {bookmarkModal.saving ? 'Saving…' : 'Bookmark'}
+        </Button>
+      </Dialog.Footer>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>

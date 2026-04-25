@@ -25,3 +25,12 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Tooling-local state
+.claude/
+
+# `pnpm wasm:build` regenerates this every time; not source.
+crates/lgs-wasm/pkg/
+
+# Stray local team math root from running the desktop app in dev.
+/teams/

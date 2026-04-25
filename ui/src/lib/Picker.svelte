@@ -94,13 +94,6 @@
 
     panelLeft = left;
     panelWidth = width;
-
-    // Debug (remove later): log for troubleshooting overflow reports.
-    console.debug('[Picker]', {
-      trigger: { left: rect.left, right: rect.right, width: rect.width },
-      viewport: { w: window.innerWidth, h: window.innerHeight },
-      panel: { left, width, right: left + width }
-    });
   }
 
   function toggleOpen() {

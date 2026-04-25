@@ -1,0 +1,9 @@
+{
+  "gameSlug": "example",
+  "gameEntry": "./game/index.html",
+  "mathBaseUrl": "./math",
+  "lang": "en",
+  "currency": "USD",
+  "device": "desktop",
+  "extraParams": {}
+}

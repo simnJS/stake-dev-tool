@@ -1,5 +1,9 @@
+use crate::github;
+use crate::math_sync;
+use crate::preview;
 use crate::profiles;
 use crate::state::{AppState, LgsRunning};
+use crate::teams;
 
 fn resolve_ui_dir() -> Option<PathBuf> {
     // 1) explicit env override
@@ -123,7 +127,7 @@ pub async fn start_lgs(
 
     let handle = start_server_with_state(lgs_state.clone(), format!("127.0.0.1:{port}"), ui_dir)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     let bound_addr = handle.bound_addr;
 
     {
@@ -176,9 +180,14 @@ pub async fn list_games(math_dir: String) -> Result<Vec<GameInfo>, String> {
     let mut games = Vec::new();
     let mut entries = tokio::fs::read_dir(&root)
         .await
-        .map_err(|e| e.to_string())?;
-    while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
-        if !entry.file_type().await.map_err(|e| e.to_string())?.is_dir() {
+        .map_err(|e| format!("{e:#}"))?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| format!("{e:#}"))? {
+        if !entry
+            .file_type()
+            .await
+            .map_err(|e| format!("{e:#}"))?
+            .is_dir()
+        {
             continue;
         }
         let game_dir = entry.path();
@@ -239,7 +248,7 @@ pub async fn inspect_game_folder(path: String) -> Result<InspectedGame, String> 
 async fn read_modes(index_path: &Path) -> Result<Vec<String>, String> {
     let bytes = tokio::fs::read(index_path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     #[derive(Deserialize)]
     struct ModeRef {
         name: String,
@@ -365,7 +374,7 @@ pub struct CaStatus {
 pub async fn ca_status() -> Result<CaStatus, String> {
     let ca = tls::LocalCa::load_or_create()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     let installed = tls::is_ca_installed_user_store();
     Ok(CaStatus {
         installed,
@@ -377,7 +386,7 @@ pub async fn ca_status() -> Result<CaStatus, String> {
 pub async fn install_ca() -> Result<CaStatus, String> {
     let ca = tls::LocalCa::load_or_create()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     tls::install_ca_user_store(&ca.ca_cert_path()).map_err(|e| e.to_string())?;
     Ok(CaStatus {
         installed: tls::is_ca_installed_user_store(),
@@ -390,7 +399,7 @@ pub async fn uninstall_ca() -> Result<CaStatus, String> {
     tls::uninstall_ca_user_store().map_err(|e| e.to_string())?;
     let ca = tls::LocalCa::load_or_create()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:#}"))?;
     Ok(CaStatus {
         installed: tls::is_ca_installed_user_store(),
         ca_path: ca.ca_cert_path().to_string_lossy().into_owned(),
@@ -403,7 +412,7 @@ pub async fn uninstall_ca() -> Result<CaStatus, String> {
 
 #[tauri::command]
 pub async fn get_settings() -> Result<lgs_settings::Settings, String> {
-    lgs_settings::load().await.map_err(|e| e.to_string())
+    lgs_settings::load().await.map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -413,7 +422,7 @@ pub async fn toggle_resolution(
 ) -> Result<lgs_settings::Settings, String> {
     lgs_settings::toggle(&id, enabled)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -424,14 +433,14 @@ pub async fn add_custom_resolution(
 ) -> Result<lgs_settings::Settings, String> {
     lgs_settings::add_custom(label, width, height)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
 pub async fn delete_custom_resolution(id: String) -> Result<lgs_settings::Settings, String> {
     lgs_settings::delete_custom(&id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 // ============================================================
@@ -440,7 +449,7 @@ pub async fn delete_custom_resolution(id: String) -> Result<lgs_settings::Settin
 
 #[tauri::command]
 pub async fn list_profiles() -> Result<Vec<profiles::Profile>, String> {
-    profiles::list().await.map_err(|e| e.to_string())
+    profiles::list().await.map_err(|e| format!("{e:#}"))
 }
 
 #[derive(Deserialize)]
@@ -478,12 +487,12 @@ pub async fn replace_resolutions(
 ) -> Result<lgs_settings::Settings, String> {
     lgs_settings::replace_all(resolutions)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
 pub async fn delete_profile(id: String) -> Result<(), String> {
-    profiles::delete(&id).await.map_err(|e| e.to_string())
+    profiles::delete(&id).await.map_err(|e| format!("{e:#}"))
 }
 
 /// Find a Chromium-based browser executable on the system.
@@ -576,6 +585,229 @@ pub async fn open_test_browser(url: String) -> Result<OpenBrowserResult, String>
         // its own openUrl call (default system browser).
         Err("no Chromium-based browser found on the system".to_string())
     }
+}
+
+// ============================================================
+// GitHub auth
+// ============================================================
+
+#[tauri::command]
+pub async fn github_current_user() -> Result<Option<github::GithubUser>, String> {
+    github::auth::current_user()
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn github_start_device_flow() -> Result<github::DeviceCode, String> {
+    github::auth::request_device_code()
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn github_poll_device_flow(
+    device_code: String,
+    current_interval: u64,
+) -> Result<github::auth::DeviceFlowPoll, String> {
+    github::auth::poll_for_token(&device_code, current_interval)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn github_logout() -> Result<(), String> {
+    github::auth::clear_token().map_err(|e| e.to_string())
+}
+
+// ============================================================
+// Teams
+// ============================================================
+
+#[tauri::command]
+pub async fn teams_list() -> Result<Vec<teams::Team>, String> {
+    teams::list_local().await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_active() -> Result<Option<teams::Team>, String> {
+    teams::active_team().await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_set_active(team_id: Option<String>) -> Result<(), String> {
+    teams::set_active(team_id.as_deref())
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_create(name: String, org: Option<String>) -> Result<teams::Team, String> {
+    teams::create_team(name, org)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn github_list_orgs() -> Result<Vec<github::api::OrgInfo>, String> {
+    let client = github::api::GithubClient::from_stored_token().map_err(|e| format!("{e:#}"))?;
+    client.list_user_orgs().await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_join(owner: String, name: String) -> Result<teams::Team, String> {
+    teams::join_team(owner, name)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_leave(team_id: String) -> Result<(), String> {
+    teams::remove_local(&team_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_delete(team_id: String) -> Result<(), String> {
+    teams::delete_team(&team_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_invite(team_id: String, username: String) -> Result<(), String> {
+    teams::invite_member(&team_id, &username)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_discover() -> Result<Vec<teams::DiscoveredTeam>, String> {
+    teams::discover_teams().await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_sync(team_id: String) -> Result<teams::SyncReport, String> {
+    teams::sync_team(&team_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+// ============================================================
+// Math file sync (per-team, per-game)
+// ============================================================
+
+#[tauri::command]
+pub async fn teams_push_math(
+    app: AppHandle,
+    team_id: String,
+    game_slug: String,
+    game_path: String,
+) -> Result<math_sync::MathSyncReport, String> {
+    math_sync::push(&app, &team_id, &game_slug, game_path)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_pull_math(
+    app: AppHandle,
+    team_id: String,
+    game_slug: String,
+    dest_path: String,
+) -> Result<math_sync::MathSyncReport, String> {
+    math_sync::pull(&app, &team_id, &game_slug, dest_path)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+// ============================================================
+// Preview publishing (browser-side WASM RGS)
+// ============================================================
+
+#[tauri::command]
+pub async fn preview_publish(
+    app: AppHandle,
+    profile_id: String,
+    front_path: String,
+    math_mode: preview::MathMode,
+) -> Result<preview::PublishReport, String> {
+    preview::publish_with_progress(&app, &profile_id, front_path, math_mode)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn preview_unpublish(profile_id: String) -> Result<(), String> {
+    preview::unpublish(&profile_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn preview_build_local(
+    profile_id: String,
+    front_path: String,
+    math_mode: preview::MathMode,
+) -> Result<String, String> {
+    preview::build_local(&profile_id, front_path, math_mode)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_list_remote_games(team_id: String) -> Result<Vec<String>, String> {
+    math_sync::list_remote_games(&team_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_remove_from_catalog(team_id: String, profile_id: String) -> Result<(), String> {
+    teams::remove_from_catalog(&team_id, &profile_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_push_profile(team_id: String, profile_id: String) -> Result<(), String> {
+    teams::push_local_profile(&team_id, &profile_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_all_catalogs() -> Result<Vec<teams::CatalogEntry>, String> {
+    teams::list_all_catalogs()
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_list_profiles(team_id: String) -> Result<Vec<teams::TeamProfileInfo>, String> {
+    teams::list_team_profiles(&team_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_pull_profile(
+    app: AppHandle,
+    team_id: String,
+    team_profile_id: String,
+) -> Result<profiles::Profile, String> {
+    teams::pull_team_profile(&app, &team_id, &team_profile_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub async fn teams_default_math_root(team_id: String) -> Result<String, String> {
+    teams::default_math_root_for(&team_id)
+        .await
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

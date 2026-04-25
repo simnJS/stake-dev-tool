@@ -224,17 +224,27 @@ async fn get_events_history(
 /// for each subsequent push. Replaces per-frame polling of `/last-event` +
 /// `/events` at 1 Hz — one persistent connection per frame, zero traffic
 /// when no spin happens.
+///
+/// Always returns 200 OK, even if the session hasn't been prepared yet.
+/// `EventSource` permanently closes on 4xx responses (no auto-reconnect on
+/// HTTP errors, only on network-level failures), so the test view used to
+/// silently lose its history feed when the SSE call beat `/sessions/prepare`.
+/// We pre-create the broadcast channel; the snapshot is an empty list when
+/// the session isn't there yet, and live events flow in once `/play` runs.
 async fn stream_events(
     State(state): State<Arc<AppState>>,
     Path(sid): Path<String>,
-) -> AppResult<Sse<impl Stream<Item = Result<Event, Infallible>>>> {
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Subscribe BEFORE reading the snapshot so any event pushed in the window
     // between the two lands in the live stream; client de-dupes on `at`.
     let rx = state.sessions.subscribe_events(&sid);
-    let session = state.sessions.get(&sid).ok_or(AppError::SessionNotFound)?;
+    let history = state
+        .sessions
+        .get(&sid)
+        .map(|s| s.event_history)
+        .unwrap_or_default();
 
-    let snapshot_json =
-        serde_json::to_string(&session.event_history).unwrap_or_else(|_| "[]".to_string());
+    let snapshot_json = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
     let snapshot_event = Event::default().event("snapshot").data(snapshot_json);
     let snapshot_stream = tokio_stream::once(Ok::<Event, Infallible>(snapshot_event));
 
@@ -245,7 +255,7 @@ async fn stream_events(
     });
 
     let combined = snapshot_stream.chain(live_stream);
-    Ok(Sse::new(combined).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+    Sse::new(combined).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
 fn event_from_entry(entry: &EventEntry) -> Option<Event> {

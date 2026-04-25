@@ -124,6 +124,7 @@ export type Profile = {
   resolutions: ResolutionPreset[];
   createdAt: number;
   updatedAt: number;
+  teamId?: string | null;
 };
 
 export type SaveProfilePayload = {
@@ -464,6 +465,147 @@ export function flagUrl(country: string | null | undefined, height = 20): string
 }
 
 export const API_MULTIPLIER = 1_000_000;
+
+// ===== GitHub auth + Teams =====
+
+export type GithubUser = {
+  id: number;
+  login: string;
+  name?: string | null;
+  avatar_url?: string | null;
+};
+
+export type DeviceCode = {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+};
+
+export type AuthState = { user: GithubUser };
+
+export type DeviceFlowPoll = {
+  auth: AuthState | null;
+  next_interval_secs: number;
+};
+
+export type GithubOrg = {
+  login: string;
+  id: number;
+  avatar_url?: string | null;
+  description?: string | null;
+};
+
+export const githubAuth = {
+  currentUser: () => invoke<GithubUser | null>('github_current_user'),
+  startDeviceFlow: () => invoke<DeviceCode>('github_start_device_flow'),
+  pollDeviceFlow: (deviceCode: string, currentInterval: number) =>
+    invoke<DeviceFlowPoll>('github_poll_device_flow', { deviceCode, currentInterval }),
+  logout: () => invoke<void>('github_logout'),
+  listOrgs: () => invoke<GithubOrg[]>('github_list_orgs')
+};
+
+export type TeamRole = 'owner' | 'member';
+
+export type Team = {
+  id: string;
+  name: string;
+  repoOwner: string;
+  repoName: string;
+  role: TeamRole;
+  htmlUrl: string;
+  addedAt: number;
+  lastSyncAt?: number | null;
+};
+
+export type DiscoveredTeam = {
+  teamId: string;
+  teamName: string;
+  repoOwner: string;
+  repoName: string;
+  htmlUrl: string;
+};
+
+export type SyncReport = {
+  profilesPushed: number;
+  profilesPulled: number;
+  roundsPushed: number;
+  roundsPulled: number;
+};
+
+export type TeamProfileInfo = {
+  id: string;
+  name: string;
+  gameSlug: string;
+  gameUrl: string;
+  hasMath: boolean;
+  updatedAt: number;
+};
+
+export type CatalogEntry = {
+  teamId: string;
+  teamName: string;
+  profile: TeamProfileInfo;
+};
+
+export type MathSyncReport = {
+  filesUploaded: number;
+  filesSkipped: number;
+  chunksUploaded: number;
+  bytesUploaded: number;
+};
+
+export type PublishReport = {
+  url: string;
+  filesUploaded: number;
+  filesSkipped: number;
+  bytesUploaded: number;
+};
+
+/// `sampled` keeps ~100 books per mode with a curated payout distribution
+/// (no-wins + max + average + tier spread). Tiny payload, fast publish,
+/// limited variety. `partial` halves the events inside every book —
+/// playable but RTP-broken. `full` ships math as-is.
+export type MathMode = 'full' | 'partial' | 'sampled';
+
+export const teamsApi = {
+  list: () => invoke<Team[]>('teams_list'),
+  active: () => invoke<Team | null>('teams_active'),
+  setActive: (teamId: string | null) => invoke<void>('teams_set_active', { teamId }),
+  create: (name: string, org?: string | null) =>
+    invoke<Team>('teams_create', { name, org: org ?? null }),
+  join: (owner: string, name: string) => invoke<Team>('teams_join', { owner, name }),
+  leave: (teamId: string) => invoke<void>('teams_leave', { teamId }),
+  delete: (teamId: string) => invoke<void>('teams_delete', { teamId }),
+  invite: (teamId: string, username: string) =>
+    invoke<void>('teams_invite', { teamId, username }),
+  discover: () => invoke<DiscoveredTeam[]>('teams_discover'),
+  sync: (teamId: string) => invoke<SyncReport>('teams_sync', { teamId }),
+  pushMath: (teamId: string, gameSlug: string, gamePath: string) =>
+    invoke<MathSyncReport>('teams_push_math', { teamId, gameSlug, gamePath }),
+  pullMath: (teamId: string, gameSlug: string, destPath: string) =>
+    invoke<MathSyncReport>('teams_pull_math', { teamId, gameSlug, destPath }),
+  listRemoteGames: (teamId: string) =>
+    invoke<string[]>('teams_list_remote_games', { teamId }),
+  defaultMathRoot: (teamId: string) =>
+    invoke<string>('teams_default_math_root', { teamId }),
+  publishPreview: (profileId: string, frontPath: string, mathMode: MathMode) =>
+    invoke<PublishReport>('preview_publish', { profileId, frontPath, mathMode }),
+  unpublishPreview: (profileId: string) =>
+    invoke<void>('preview_unpublish', { profileId }),
+  buildLocalPreview: (profileId: string, frontPath: string, mathMode: MathMode) =>
+    invoke<string>('preview_build_local', { profileId, frontPath, mathMode }),
+  listProfiles: (teamId: string) =>
+    invoke<TeamProfileInfo[]>('teams_list_profiles', { teamId }),
+  pullProfile: (teamId: string, teamProfileId: string) =>
+    invoke<Profile>('teams_pull_profile', { teamId, teamProfileId }),
+  pushProfile: (teamId: string, profileId: string) =>
+    invoke<void>('teams_push_profile', { teamId, profileId }),
+  allCatalogs: () => invoke<CatalogEntry[]>('teams_all_catalogs'),
+  removeFromCatalog: (teamId: string, profileId: string) =>
+    invoke<void>('teams_remove_from_catalog', { teamId, profileId })
+};
 
 export async function pickFolder(title = 'Select math root folder'): Promise<string | null> {
   const result = await openDialog({
