@@ -3,6 +3,14 @@ resolver = "2"
 members = [
     "crates/lgs",
     "crates/desktop",
+    "crates/lgs-wasm",
+]
+# `lgs-wasm` only makes sense on wasm32. Excluding it from default-members
+# keeps `cargo check`/`cargo build` at the workspace root from trying to
+# build it for the host target.
+default-members = [
+    "crates/lgs",
+    "crates/desktop",
 ]
 
 [workspace.package]
@@ -43,6 +51,12 @@ dirs = "5.0"
 pem = "3.0"
 include_dir = "0.7"
 mime_guess = "2.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "linux-native"] }
+base64 = "0.22"
+sha2 = "0.10"
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
 
 [profile.release]
 opt-level = 3

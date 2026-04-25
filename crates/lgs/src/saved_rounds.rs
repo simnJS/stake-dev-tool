@@ -120,6 +120,19 @@ pub async fn update_description(id: &str, description: String) -> Result<SavedRo
     Ok(updated)
 }
 
+/// Insert or replace a full saved round record. Used by team sync to apply
+/// remote changes without losing timestamps or IDs.
+pub async fn upsert_raw(round: SavedRound) -> Result<SavedRound> {
+    let mut f = load().await?;
+    if let Some(existing) = f.rounds.iter_mut().find(|r| r.id == round.id) {
+        *existing = round.clone();
+    } else {
+        f.rounds.push(round.clone());
+    }
+    save(&f).await?;
+    Ok(round)
+}
+
 pub async fn delete(id: &str) -> Result<()> {
     let mut f = load().await?;
     let before = f.rounds.len();

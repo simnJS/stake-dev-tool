@@ -24,6 +24,11 @@ pub struct Profile {
     pub created_at: u64,
     #[serde(rename = "updatedAt")]
     pub updated_at: u64,
+    /// The team this profile was pulled from, if any. `None` for profiles the
+    /// user created locally. Enables the UI to group/filter by origin and
+    /// show a "from team X" badge.
+    #[serde(default, rename = "teamId")]
+    pub team_id: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -111,10 +116,36 @@ pub async fn upsert(
         resolutions,
         created_at: now,
         updated_at: now,
+        team_id: None,
     };
     f.profiles.push(new.clone());
     save(&f).await?;
     Ok(new)
+}
+
+/// Insert or replace a full profile record. Used by team sync to apply
+/// remote changes without losing timestamps or IDs.
+pub async fn upsert_raw(profile: Profile) -> Result<Profile> {
+    let mut f = load().await?;
+    if let Some(existing) = f.profiles.iter_mut().find(|p| p.id == profile.id) {
+        *existing = profile.clone();
+    } else {
+        f.profiles.push(profile.clone());
+    }
+    save(&f).await?;
+    Ok(profile)
+}
+
+/// Stamp a profile with its team of origin. Used right after pushing to a
+/// team so the UI moves the profile from the "Mine" group to that team's
+/// group and exposes the "Pull latest" action.
+pub async fn set_team(profile_id: &str, team_id: Option<&str>) -> Result<()> {
+    let mut f = load().await?;
+    let Some(p) = f.profiles.iter_mut().find(|p| p.id == profile_id) else {
+        return Err(anyhow!("profile not found"));
+    };
+    p.team_id = team_id.map(|s| s.to_string());
+    save(&f).await
 }
 
 pub async fn delete(id: &str) -> Result<()> {

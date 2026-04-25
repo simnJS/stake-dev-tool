@@ -28,6 +28,9 @@
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import MinimizeIcon from '@lucide/svelte/icons/minimize-2';
+  import UsersIcon from '@lucide/svelte/icons/users';
+  import UploadIcon from '@lucide/svelte/icons/upload';
+  import { goto } from '$app/navigation';
 
   import {
     browser,
@@ -38,13 +41,24 @@
     pickFolder,
     profiles as profilesApi,
     settings as settingsApi,
+    teamsApi,
     type CaStatus,
     type InspectedGame,
     type LgsStatus,
     type Profile,
     type ResolutionPreset,
+    type Team,
+    type TeamProfileInfo,
     type UpdateInfo
   } from '$lib/api';
+  import * as Dialog from '$lib/components/ui/dialog';
+
+  import DownloadCloudIcon from '@lucide/svelte/icons/download-cloud';
+  import UsersRoundIcon from '@lucide/svelte/icons/users-round';
+  import Share2Icon from '@lucide/svelte/icons/share-2';
+  import GlobeIcon from '@lucide/svelte/icons/globe';
+  import CopyIcon from '@lucide/svelte/icons/copy';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 
   const DEFAULT_PORT = 3001;
   const LS_CLOSE_AFTER = 'sdt.closeAfterLaunch';
@@ -75,6 +89,29 @@
   let closeAfterLaunch = $state(true);
   let busy = $state(false);
 
+  let allTeams = $state<Team[]>([]);
+  let catalog = $state<import('$lib/api').CatalogEntry[]>([]);
+  let catalogLoading = $state(false);
+  let readyProfiles = $state<Record<string, boolean>>({});
+
+  // Push-target picker state. Shown when a local profile has no team origin
+  // AND the user is in more than one team — user then explicitly picks where
+  // the profile lands instead of us silently defaulting.
+  let pushPickerOpen = $state(false);
+  let pushPickerProfile = $state<Profile | null>(null);
+
+  // Share preview state.
+  let shareOpen = $state(false);
+  let shareProfile = $state<Profile | null>(null);
+  let shareFrontPath = $state('');
+  let shareMathMode = $state<import('$lib/api').MathMode>('partial');
+  let shareBusy = $state(false);
+  let shareUrl = $state<string | null>(null);
+
+  const FRONT_PATH_LS_PREFIX = 'sdt.frontPath.';
+  const PREVIEW_URL_LS_PREFIX = 'sdt.previewUrl.';
+  const MATH_MODE_LS_KEY = 'sdt.previewMathMode';
+
   onMount(() => {
     (async () => {
       try {
@@ -86,6 +123,8 @@
         savedProfiles = await profilesApi.list();
         const s = await settingsApi.get();
         resolutions = s.resolutions;
+        refreshProfileReadiness().catch(() => {});
+        refreshTeamsAndCatalog().catch(() => {});
       } catch (e) {
         console.error(e);
       }
@@ -104,8 +143,20 @@
         openNewDraft();
       }
     };
+    // Auto-refresh catalogue + readiness when the window regains focus. Keeps
+    // the "update available" badges accurate without the user clicking
+    // refresh — cheap (a few JSON fetches) and invisible.
+    const onFocus = () => {
+      if (busy) return;
+      refreshTeamsAndCatalog().catch(() => {});
+      refreshProfileReadiness().catch(() => {});
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('focus', onFocus);
+    };
   });
 
   function persistCloseAfter() {
@@ -295,6 +346,217 @@
     });
   }
 
+  async function refreshProfileReadiness() {
+    // Update per-profile so a slow `inspect` on one path doesn't keep every
+    // other profile's Launch button disabled. Each result lands as soon as
+    // its `inspect` resolves.
+    await Promise.all(
+      savedProfiles.map(async (p) => {
+        try {
+          await lgs.inspect(p.gamePath);
+          readyProfiles = { ...readyProfiles, [p.id]: true };
+        } catch {
+          readyProfiles = { ...readyProfiles, [p.id]: false };
+        }
+      })
+    );
+  }
+
+  async function refreshTeamsAndCatalog() {
+    catalogLoading = true;
+    try {
+      allTeams = await teamsApi.list();
+      if (allTeams.length > 0) {
+        catalog = await teamsApi.allCatalogs();
+        // The backend reconciles local profiles against the catalogue during
+        // `allCatalogs` (stamping team_id on profiles whose id appears in a
+        // team's catalogue). Re-read profiles so the UI picks up those new
+        // team_ids and moves the cards to their real group.
+        savedProfiles = await profilesApi.list();
+      } else {
+        catalog = [];
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      catalogLoading = false;
+    }
+  }
+
+  /// Entry-point for the Push icon. Skips the picker when the target is
+  /// unambiguous (profile already linked to a team, or user only has one
+  /// team); shows a picker dialog otherwise.
+  function onPushClick(p: Profile) {
+    if (p.teamId) {
+      pushProfileToTeam(p, p.teamId);
+      return;
+    }
+    if (allTeams.length === 0) {
+      toast.error('Join or create a team first.');
+      return;
+    }
+    if (allTeams.length === 1) {
+      pushProfileToTeam(p, allTeams[0].id);
+      return;
+    }
+    pushPickerProfile = p;
+    pushPickerOpen = true;
+  }
+
+  async function pushProfileToTeam(p: Profile, teamId: string) {
+    const team = allTeams.find((t) => t.id === teamId);
+    if (!team) return toast.error('Team not found.');
+    await withBusy(async () => {
+      toast.info(`Adding "${p.name}" to "${team.name}" catalogue…`);
+      await teamsApi.pushProfile(team.id, p.id);
+      toast.info(`Uploading ${p.gameSlug} math (can take several minutes)…`);
+      const r = await teamsApi.pushMath(team.id, p.gameSlug, p.gamePath);
+      const mb = (r.bytesUploaded / 1_048_576).toFixed(1);
+      if (r.filesUploaded === 0 && r.filesSkipped > 0) {
+        toast.success(`Shared "${p.name}" — math already in sync`);
+      } else {
+        toast.success(`Shared "${p.name}" with ${mb} MB of math`);
+      }
+      savedProfiles = await profilesApi.list();
+      refreshTeamsAndCatalog().catch(() => {});
+    });
+  }
+
+  async function pullTeamProfile(teamId: string, tp: TeamProfileInfo) {
+    const team = allTeams.find((t) => t.id === teamId);
+    if (!team) return toast.error('Team not found.');
+    await withBusy(async () => {
+      toast.info(`Pulling "${tp.name}" from "${team.name}"… large games can take several minutes.`);
+      const p = await teamsApi.pullProfile(team.id, tp.id);
+      savedProfiles = await profilesApi.list();
+      activeProfileId = p.id;
+      await refreshTeamsAndCatalog();
+      await refreshProfileReadiness();
+      toast.success(`Pulled "${p.name}" — ready to launch`);
+    });
+  }
+
+  async function pullMissingMath(p: Profile) {
+    const teamId = p.teamId;
+    if (!teamId) {
+      return toast.error('This profile has no team origin. Delete it or add the math manually.');
+    }
+    const tp = catalog.find((c) => c.teamId === teamId && c.profile.id === p.id);
+    if (!tp) {
+      return toast.error(
+        "This game isn't in the team's catalogue anymore. Ask the team owner to push it, or delete this profile."
+      );
+    }
+    await pullTeamProfile(teamId, tp.profile);
+  }
+
+  async function removeFromCatalog(p: Profile) {
+    if (!p.teamId) return;
+    const team = allTeams.find((t) => t.id === p.teamId);
+    if (!team) return;
+    if (
+      !confirm(
+        `Remove "${p.name}" from team "${team.name}"?\n\n` +
+          `This deletes the profile, math files and saved rounds from the team on GitHub. ` +
+          `Other members will lose access. Your local copy is kept.`
+      )
+    )
+      return;
+    await withBusy(async () => {
+      await teamsApi.removeFromCatalog(team.id, p.id);
+      await refreshTeamsAndCatalog();
+      toast.success(`Removed "${p.name}" from "${team.name}"`);
+    });
+  }
+
+  function openShareDialog(p: Profile) {
+    shareProfile = p;
+    shareFrontPath = localStorage.getItem(FRONT_PATH_LS_PREFIX + p.id) ?? '';
+    const stored = localStorage.getItem(MATH_MODE_LS_KEY);
+    shareMathMode =
+      stored === 'full' || stored === 'partial' || stored === 'sampled'
+        ? stored
+        : 'sampled';
+    // Restore the last published URL so the user can copy it again without
+    // re-publishing.
+    shareUrl = localStorage.getItem(PREVIEW_URL_LS_PREFIX + p.id);
+    shareOpen = true;
+  }
+
+  async function pickShareFolder() {
+    const dir = await pickFolder('Select the built front folder (contains index.html)');
+    if (!dir) return;
+    shareFrontPath = dir;
+  }
+
+  async function publishShare() {
+    if (!shareProfile) return;
+    const front = shareFrontPath.trim();
+    if (!front) return toast.error('Pick the built front folder first');
+    localStorage.setItem(FRONT_PATH_LS_PREFIX + shareProfile.id, front);
+    localStorage.setItem(MATH_MODE_LS_KEY, shareMathMode);
+    shareBusy = true;
+    try {
+      toast.info(`Publishing "${shareProfile.name}"… can take 30-90 sec.`);
+      const r = await teamsApi.publishPreview(shareProfile.id, front, shareMathMode);
+      shareUrl = r.url;
+      localStorage.setItem(PREVIEW_URL_LS_PREFIX + shareProfile.id, r.url);
+      toast.success(`Published — ${r.filesUploaded} files, ${(r.bytesUploaded / 1_048_576).toFixed(1)} MB`);
+    } catch (e) {
+      // Keep publish errors on screen until dismissed — they're often the
+      // only signal of a config/backend problem and they're long enough that
+      // a 4-second auto-dismiss eats them before the user can read.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[publish] failed:', e);
+      toast.error(msg, { duration: Infinity, closeButton: true });
+    } finally {
+      shareBusy = false;
+    }
+  }
+
+  async function copyShareUrl() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success('URL copied');
+    } catch {
+      toast.error('Could not copy');
+    }
+  }
+
+  async function unpublishShare() {
+    if (!shareProfile) return;
+    if (!confirm(`Take down the preview for "${shareProfile.name}"?`)) return;
+    shareBusy = true;
+    try {
+      await teamsApi.unpublishPreview(shareProfile.id);
+      localStorage.removeItem(PREVIEW_URL_LS_PREFIX + shareProfile.id);
+      shareUrl = null;
+      toast.success('Preview unpublished');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      shareBusy = false;
+    }
+  }
+
+  /// Refresh an already-pulled team profile from the remote. Re-downloads only
+  /// the chunks whose SHA changed, so it's fast if nothing moved.
+  async function refreshFromTeam(p: Profile) {
+    const teamId = p.teamId;
+    if (!teamId) return;
+    const team = allTeams.find((t) => t.id === teamId);
+    if (!team) return toast.error('Team not found.');
+    await withBusy(async () => {
+      toast.info(`Pulling latest "${p.name}" from "${team.name}"…`);
+      await teamsApi.pullProfile(team.id, p.id);
+      savedProfiles = await profilesApi.list();
+      await refreshProfileReadiness();
+      await refreshTeamsAndCatalog();
+      toast.success(`"${p.name}" up to date`);
+    });
+  }
+
   async function deleteProfile(p: Profile) {
     if (!confirm(`Delete profile "${p.name}"?`)) return;
     await withBusy(async () => {
@@ -364,8 +626,67 @@
   }
 
   const enabledResCount = $derived(resolutions.filter((r) => r.enabled).length);
-  const hasProfiles = $derived(savedProfiles.length > 0);
+  const hasProfiles = $derived(savedProfiles.length > 0 || catalog.length > 0);
   const currentVersion = $derived(updateInfo?.currentVersion ?? '');
+  const localIdSet = $derived(new Set(savedProfiles.map((p) => p.id)));
+
+  type GameGroup = {
+    key: string;
+    teamId: string | null;
+    teamName: string | null;
+    local: Profile[];
+    available: { teamId: string; tp: TeamProfileInfo }[];
+  };
+
+  const gameGroups: GameGroup[] = $derived.by(() => {
+    const mine: Profile[] = [];
+    const byTeam = new Map<string, { teamName: string; local: Profile[] }>();
+
+    for (const p of savedProfiles) {
+      if (!p.teamId) {
+        mine.push(p);
+      } else {
+        const t = allTeams.find((tt) => tt.id === p.teamId);
+        const entry = byTeam.get(p.teamId) ?? { teamName: t?.name ?? '(unknown team)', local: [] };
+        entry.local.push(p);
+        byTeam.set(p.teamId, entry);
+      }
+    }
+
+    const availableByTeam = new Map<string, { teamId: string; tp: TeamProfileInfo }[]>();
+    for (const c of catalog) {
+      if (!c.profile.hasMath) continue;
+      if (localIdSet.has(c.profile.id)) continue;
+      const list = availableByTeam.get(c.teamId) ?? [];
+      list.push({ teamId: c.teamId, tp: c.profile });
+      availableByTeam.set(c.teamId, list);
+    }
+
+    const groups: GameGroup[] = [];
+    if (mine.length > 0) {
+      groups.push({
+        key: 'mine',
+        teamId: null,
+        teamName: null,
+        local: mine,
+        available: []
+      });
+    }
+    // Preserve team order (most recently added first).
+    for (const team of allTeams) {
+      const b = byTeam.get(team.id);
+      const a = availableByTeam.get(team.id) ?? [];
+      if (!b && a.length === 0) continue;
+      groups.push({
+        key: `team-${team.id}`,
+        teamId: team.id,
+        teamName: team.name,
+        local: b?.local ?? [],
+        available: a
+      });
+    }
+    return groups;
+  });
 </script>
 
 <svelte:head>
@@ -415,6 +736,23 @@
             {/snippet}
           </Tooltip.Trigger>
           <Tooltip.Content>{status.running ? 'Click to stop' : 'Click to start'}</Tooltip.Content>
+        </Tooltip.Root>
+
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="ghost"
+                size="icon-lg"
+                onclick={() => goto('/teams')}
+                aria-label="Teams"
+              >
+                <UsersIcon />
+              </Button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>Teams</Tooltip.Content>
         </Tooltip.Root>
 
         <Tooltip.Root>
@@ -508,26 +846,35 @@
         <h2 class="text-xl font-semibold tracking-tight">Games</h2>
         <p class="mt-1 text-sm text-muted-foreground">
           {#if hasProfiles}
-            Click a profile to launch. Press
-            <span class="kbd">↵</span>
-            to launch the active one, or
-            <span class="kbd">⌘</span><span class="kbd">N</span>
-            to add a new game.
+            Click a profile to launch. Press <span class="kbd">↵</span> to launch the active one,
+            or <span class="kbd">⌘</span><span class="kbd">N</span> to add a new game.
           {:else}
             Add your first game below.
           {/if}
         </p>
       </div>
-      {#if hasProfiles}
-        <Button size="lg" onclick={openNewDraft}>
-          <PlusIcon />
-          New game
-        </Button>
-      {/if}
+      <div class="flex items-center gap-2">
+        {#if allTeams.length > 0}
+          <Button
+            variant="ghost"
+            size="sm"
+            onclick={refreshTeamsAndCatalog}
+            disabled={busy || catalogLoading}
+            title="Refresh team catalogues"
+          >
+            <RefreshIcon class={catalogLoading ? 'animate-spin' : ''} />
+          </Button>
+        {/if}
+        {#if hasProfiles}
+          <Button size="lg" onclick={openNewDraft}>
+            <PlusIcon />
+            New game
+          </Button>
+        {/if}
+      </div>
     </div>
 
     {#if !hasProfiles}
-      <!-- Empty state -->
       <Card.Root class="border-dashed">
         <Card.Content class="flex flex-col items-start gap-4 py-12">
           <div class="flex h-12 w-12 items-center justify-center rounded-xl border bg-muted text-muted-foreground">
@@ -547,99 +894,275 @@
         </Card.Content>
       </Card.Root>
     {:else}
-      <!-- Profile cards -->
-      <div class="flex flex-col gap-3">
-        {#each savedProfiles as p, i (p.id)}
-          {@const active = activeProfileId === p.id}
-          <Card.Root
-            class="group fade-in relative overflow-hidden transition hover:border-foreground/25 {active
-              ? 'border-foreground/40'
-              : ''}"
-            style="animation-delay: {i * 40}ms;"
-          >
-            {#if active}
-              <span class="absolute left-0 top-4 bottom-4 w-[3px] rounded-r bg-foreground/80"></span>
+      {#each gameGroups as g, gi (g.key)}
+        <div class="flex flex-col gap-3" style="animation-delay: {gi * 60}ms;">
+          <div class="flex items-center gap-2 border-b pb-2">
+            {#if g.teamId === null}
+              <FolderIcon class="h-4 w-4 text-muted-foreground" />
+              <h3 class="text-sm font-semibold tracking-tight">Mine</h3>
+              <span class="text-xs text-muted-foreground">· local only</span>
+            {:else}
+              <UsersRoundIcon class="h-4 w-4 text-muted-foreground" />
+              <h3 class="text-sm font-semibold tracking-tight">{g.teamName}</h3>
+              <Badge variant="outline" class="text-[10px]">team</Badge>
+              <span class="text-xs text-muted-foreground">
+                · {g.local.length} pulled{g.available.length > 0 ? `, ${g.available.length} available` : ''}
+              </span>
             {/if}
-            <Card.Content class="flex items-center gap-4 py-4 pl-6 pr-4">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-3">
-                  <button
-                    type="button"
-                    class="text-left text-lg font-semibold tracking-tight transition hover:text-foreground/90"
-                    onclick={() => launchProfile(p)}
-                    disabled={busy}
-                  >
-                    {p.name}
-                  </button>
-                  <Badge variant="secondary" class="font-mono-tab text-xs">{p.gameSlug}</Badge>
-                  {#if active}
-                    <Badge variant="outline" class="gap-1.5 text-xs">
-                      <span class="status-dot status-dot-live"></span>
-                      active
-                    </Badge>
+          </div>
+
+          {#each g.local as p, i (p.id)}
+            {@const active = activeProfileId === p.id}
+            {@const ready = readyProfiles[p.id]}
+            {@const catalogEntry = catalog.find((c) => c.profile.id === p.id)}
+            {@const inCatalog = catalogEntry?.profile.hasMath ?? false}
+            {@const hasUpdate =
+              p.teamId && catalogEntry ? catalogEntry.profile.updatedAt > p.updatedAt : false}
+            {@const pushTargetId = p.teamId ?? allTeams[0]?.id ?? null}
+            {@const pushTargetName = allTeams.find((t) => t.id === pushTargetId)?.name ?? null}
+            {@const teamOfProfile = p.teamId
+              ? allTeams.find((t) => t.id === p.teamId) ?? null
+              : null}
+            {@const canRemoveFromTeam = teamOfProfile?.role === 'owner'}
+            <Card.Root
+              class="group fade-in relative overflow-hidden transition hover:border-foreground/25 {active
+                ? 'border-foreground/40'
+                : ''}"
+              style="animation-delay: {i * 40}ms;"
+            >
+              {#if active}
+                <span class="absolute left-0 top-4 bottom-4 w-[3px] rounded-r bg-foreground/80"></span>
+              {/if}
+              <Card.Content class="flex items-center gap-4 py-4 pl-6 pr-4">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-3 flex-wrap">
+                    <button
+                      type="button"
+                      class="text-left text-lg font-semibold tracking-tight transition hover:text-foreground/90"
+                      onclick={() => launchProfile(p)}
+                      disabled={busy}
+                    >
+                      {p.name}
+                    </button>
+                    <Badge variant="secondary" class="font-mono-tab text-xs">{p.gameSlug}</Badge>
+                    {#if ready === false}
+                      <Badge variant="outline" class="text-xs text-amber-500 border-amber-500/50">
+                        math missing
+                      </Badge>
+                    {/if}
+                    {#if hasUpdate}
+                      <Badge variant="outline" class="text-xs text-blue-500 border-blue-500/50">
+                        update available
+                      </Badge>
+                    {/if}
+                    {#if active}
+                      <Badge variant="outline" class="gap-1.5 text-xs">
+                        <span class="status-dot status-dot-live"></span>
+                        active
+                      </Badge>
+                    {/if}
+                  </div>
+                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground font-mono-tab">
+                    <span class="flex items-center gap-1.5" title={p.gamePath}>
+                      <FolderIcon class="h-3.5 w-3.5" />
+                      {abbreviatePath(p.gamePath, 46)}
+                    </span>
+                    <span class="flex items-center gap-1.5" title={p.gameUrl}>
+                      <MonitorIcon class="h-3.5 w-3.5" />
+                      {p.gameUrl}
+                    </span>
+                    <span>· updated {formatRelative(p.updatedAt)}</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-1">
+                  <Tooltip.Provider delayDuration={200}>
+                    {#if p.teamId && ready !== false}
+                      <Tooltip.Root>
+                        <Tooltip.Trigger>
+                          {#snippet child({ props })}
+                            <Button
+                              {...props}
+                              variant={hasUpdate ? 'default' : 'ghost'}
+                              size="icon"
+                              class={hasUpdate
+                                ? 'opacity-100'
+                                : 'opacity-0 transition group-hover:opacity-100'}
+                              onclick={() => refreshFromTeam(p)}
+                              disabled={busy}
+                            >
+                              <DownloadCloudIcon />
+                            </Button>
+                          {/snippet}
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>
+                          {hasUpdate ? 'Pull latest — update available' : 'Pull latest from team'}
+                        </Tooltip.Content>
+                      </Tooltip.Root>
+                    {/if}
+
+                    {#if ready !== false}
+                      <Tooltip.Root>
+                        <Tooltip.Trigger>
+                          {#snippet child({ props })}
+                            <Button
+                              {...props}
+                              variant="ghost"
+                              size="icon"
+                              class="opacity-0 transition group-hover:opacity-100"
+                              onclick={() => openShareDialog(p)}
+                              disabled={busy}
+                            >
+                              <Share2Icon />
+                            </Button>
+                          {/snippet}
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>Share preview link…</Tooltip.Content>
+                      </Tooltip.Root>
+                    {/if}
+
+                    {#if canRemoveFromTeam && teamOfProfile}
+                      <Tooltip.Root>
+                        <Tooltip.Trigger>
+                          {#snippet child({ props })}
+                            <Button
+                              {...props}
+                              variant="ghost"
+                              size="icon"
+                              class="text-destructive opacity-0 transition hover:text-destructive group-hover:opacity-100"
+                              onclick={() => removeFromCatalog(p)}
+                              disabled={busy}
+                            >
+                              <UsersRoundIcon class="h-4 w-4" />
+                            </Button>
+                          {/snippet}
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>
+                          Remove from team "{teamOfProfile.name}" (owner)
+                        </Tooltip.Content>
+                      </Tooltip.Root>
+                    {/if}
+
+                    {#if pushTargetId && pushTargetName && ready !== false}
+                      <Tooltip.Root>
+                        <Tooltip.Trigger>
+                          {#snippet child({ props })}
+                            <Button
+                              {...props}
+                              variant="ghost"
+                              size="icon"
+                              class="opacity-0 transition group-hover:opacity-100"
+                              onclick={() => onPushClick(p)}
+                              disabled={busy}
+                            >
+                              <UploadIcon />
+                            </Button>
+                          {/snippet}
+                        </Tooltip.Trigger>
+                        <Tooltip.Content>
+                          {#if p.teamId}
+                            Push my changes to "{pushTargetName}"
+                          {:else if allTeams.length > 1}
+                            Share… (pick team)
+                          {:else}
+                            Share with "{pushTargetName}"
+                          {/if}
+                        </Tooltip.Content>
+                      </Tooltip.Root>
+                    {/if}
+
+                    <Tooltip.Root>
+                      <Tooltip.Trigger>
+                        {#snippet child({ props })}
+                          <Button
+                            {...props}
+                            variant="ghost"
+                            size="icon"
+                            class="opacity-0 transition group-hover:opacity-100"
+                            onclick={() => openEditDraft(p)}
+                            disabled={busy}
+                          >
+                            <PencilIcon />
+                          </Button>
+                        {/snippet}
+                      </Tooltip.Trigger>
+                      <Tooltip.Content>Edit</Tooltip.Content>
+                    </Tooltip.Root>
+
+                    <Tooltip.Root>
+                      <Tooltip.Trigger>
+                        {#snippet child({ props })}
+                          <Button
+                            {...props}
+                            variant="ghost"
+                            size="icon"
+                            class="text-destructive opacity-0 transition hover:text-destructive group-hover:opacity-100"
+                            onclick={() => deleteProfile(p)}
+                            disabled={busy}
+                          >
+                            <TrashIcon />
+                          </Button>
+                        {/snippet}
+                      </Tooltip.Trigger>
+                      <Tooltip.Content>Delete</Tooltip.Content>
+                    </Tooltip.Root>
+                  </Tooltip.Provider>
+
+                  {#if ready === false && inCatalog}
+                    <Button size="lg" onclick={() => pullMissingMath(p)} disabled={busy}>
+                      <DownloadCloudIcon class="h-4 w-4" />
+                      Pull
+                    </Button>
+                  {:else if ready === false}
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      disabled
+                      title="Math files missing at {p.gamePath}"
+                    >
+                      Missing math
+                    </Button>
+                  {:else}
+                    <Button
+                      size="lg"
+                      onclick={() => launchProfile(p)}
+                      disabled={busy}
+                    >
+                      <PlayIcon class="h-4 w-4" />
+                      Launch
+                    </Button>
                   {/if}
                 </div>
-                <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground font-mono-tab">
-                  <span class="flex items-center gap-1.5" title={p.gamePath}>
-                    <FolderIcon class="h-3.5 w-3.5" />
-                    {abbreviatePath(p.gamePath, 46)}
-                  </span>
-                  <span class="flex items-center gap-1.5" title={p.gameUrl}>
-                    <MonitorIcon class="h-3.5 w-3.5" />
-                    {p.gameUrl}
-                  </span>
-                  <span>· updated {formatRelative(p.updatedAt)}</span>
+              </Card.Content>
+            </Card.Root>
+          {/each}
+
+          {#each g.available as a (a.tp.id)}
+            <Card.Root class="fade-in border-dashed">
+              <Card.Content class="flex items-center gap-4 py-4 pl-6 pr-4">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-3 flex-wrap">
+                    <span class="text-lg font-semibold tracking-tight">{a.tp.name}</span>
+                    <Badge variant="secondary" class="font-mono-tab text-xs">{a.tp.gameSlug}</Badge>
+                    <Badge variant="outline" class="text-xs">not pulled</Badge>
+                  </div>
+                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground font-mono-tab">
+                    <span class="flex items-center gap-1.5">
+                      <MonitorIcon class="h-3.5 w-3.5" />
+                      {a.tp.gameUrl || '—'}
+                    </span>
+                    <span>· updated {formatRelative(a.tp.updatedAt)}</span>
+                  </div>
                 </div>
-              </div>
-
-              <div class="flex items-center gap-1">
-                <Tooltip.Provider delayDuration={200}>
-                  <Tooltip.Root>
-                    <Tooltip.Trigger>
-                      {#snippet child({ props })}
-                        <Button
-                          {...props}
-                          variant="ghost"
-                          size="icon"
-                          class="opacity-0 transition group-hover:opacity-100"
-                          onclick={() => openEditDraft(p)}
-                          disabled={busy}
-                        >
-                          <PencilIcon />
-                        </Button>
-                      {/snippet}
-                    </Tooltip.Trigger>
-                    <Tooltip.Content>Edit</Tooltip.Content>
-                  </Tooltip.Root>
-
-                  <Tooltip.Root>
-                    <Tooltip.Trigger>
-                      {#snippet child({ props })}
-                        <Button
-                          {...props}
-                          variant="ghost"
-                          size="icon"
-                          class="text-destructive opacity-0 transition hover:text-destructive group-hover:opacity-100"
-                          onclick={() => deleteProfile(p)}
-                          disabled={busy}
-                        >
-                          <TrashIcon />
-                        </Button>
-                      {/snippet}
-                    </Tooltip.Trigger>
-                    <Tooltip.Content>Delete</Tooltip.Content>
-                  </Tooltip.Root>
-                </Tooltip.Provider>
-
-                <Button size="lg" onclick={() => launchProfile(p)} disabled={busy}>
-                  <PlayIcon class="h-4 w-4" />
-                  Launch
+                <Button size="lg" onclick={() => pullTeamProfile(a.teamId, a.tp)} disabled={busy}>
+                  <DownloadCloudIcon class="h-4 w-4" />
+                  Pull
                 </Button>
-              </div>
-            </Card.Content>
-          </Card.Root>
-        {/each}
-      </div>
+              </Card.Content>
+            </Card.Root>
+          {/each}
+        </div>
+      {/each}
     {/if}
   </section>
 
@@ -740,6 +1263,202 @@
     </div>
   </footer>
 </main>
+
+<!-- Share preview dialog -->
+<Dialog.Root bind:open={shareOpen}>
+  <Dialog.Content class="max-w-lg">
+    <Dialog.Header>
+      <Dialog.Title class="flex items-center gap-2">
+        <GlobeIcon class="h-5 w-5" />
+        Share a preview link
+      </Dialog.Title>
+      <Dialog.Description>
+        {#if shareProfile}
+          Publishes "{shareProfile.name}" as a static page on
+          <span class="font-mono-tab">github.io</span>. The math + game run in the browser via WASM
+          — no server needed. Anyone with the URL can play.
+        {/if}
+      </Dialog.Description>
+    </Dialog.Header>
+
+    <div class="my-4 flex flex-col gap-4">
+      <div class="flex flex-col gap-2">
+        <Label for="frontPath">Built front folder</Label>
+        <div class="flex gap-2">
+          <Input
+            id="frontPath"
+            bind:value={shareFrontPath}
+            placeholder="C:\path\to\game-project\dist"
+            readonly
+          />
+          <Button variant="outline" onclick={pickShareFolder} disabled={shareBusy}>
+            <FolderIcon />
+            Browse…
+          </Button>
+        </div>
+        <p class="text-xs text-muted-foreground">
+          Folder containing the production build of your slot front (with <code
+            class="font-mono-tab">index.html</code
+          > at the root).
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <Label>Math payload</Label>
+        <label
+          class="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent {shareMathMode ===
+          'sampled'
+            ? 'border-foreground/40 bg-accent/40'
+            : ''}"
+        >
+          <input
+            type="radio"
+            name="mathMode"
+            value="sampled"
+            bind:group={shareMathMode}
+            class="mt-1"
+          />
+          <div class="flex-1 text-sm">
+            <div class="font-medium">Sampled (recommended)</div>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              ~100 books per mode with a curated payout distribution (50% no-wins +
+              max-win + average + tier spread). Tiny output, fastest publish,
+              full-fidelity per-book animations. Limited variety — best for a quick
+              demo link.
+            </p>
+          </div>
+        </label>
+        <label
+          class="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent {shareMathMode ===
+          'partial'
+            ? 'border-foreground/40 bg-accent/40'
+            : ''}"
+        >
+          <input
+            type="radio"
+            name="mathMode"
+            value="partial"
+            bind:group={shareMathMode}
+            class="mt-1"
+          />
+          <div class="flex-1 text-sm">
+            <div class="font-medium">Partial</div>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              All books, but each has half its events truncated. Animations + RTP are
+              intentionally broken so the production math stays harder to
+              reverse-engineer. Slow to publish for big games.
+            </p>
+          </div>
+        </label>
+        <label
+          class="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent {shareMathMode ===
+          'full'
+            ? 'border-foreground/40 bg-accent/40'
+            : ''}"
+        >
+          <input
+            type="radio"
+            name="mathMode"
+            value="full"
+            bind:group={shareMathMode}
+            class="mt-1"
+          />
+          <div class="flex-1 text-sm">
+            <div class="font-medium">Full</div>
+            <p class="mt-0.5 text-xs text-muted-foreground">
+              Math files shipped as-is. Preview is faithful (RTP, pacing, animations)
+              but the math is <span class="text-amber-500"
+                >fully public on github.io</span
+              > — anyone with the URL can read the weights and books.
+            </p>
+          </div>
+        </label>
+        <p class="text-xs text-muted-foreground">
+          Whichever mode you pick, anything served via GitHub Pages is reachable by
+          anyone — there's no truly private preview link without a backend.
+        </p>
+      </div>
+
+      {#if shareUrl}
+        <div class="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3">
+          <div class="text-xs text-muted-foreground mb-1.5">Live URL</div>
+          <div class="flex items-center gap-2">
+            <code class="font-mono-tab flex-1 break-all text-sm">{shareUrl}</code>
+            <Button size="icon" variant="ghost" onclick={copyShareUrl}>
+              <CopyIcon class="h-4 w-4" />
+            </Button>
+            <Button size="icon" variant="ghost" onclick={() => openUrl(shareUrl ?? '')}>
+              <ExternalLinkIcon class="h-4 w-4" />
+            </Button>
+          </div>
+          <p class="mt-2 text-xs text-muted-foreground">
+            GitHub Pages takes ~30-60 sec to propagate the first time. Refresh if you get a 404.
+          </p>
+        </div>
+      {/if}
+    </div>
+
+    <Dialog.Footer>
+      {#if shareUrl}
+        <Button variant="ghost" class="text-destructive" onclick={unpublishShare} disabled={shareBusy}>
+          <TrashIcon />
+          Unpublish
+        </Button>
+      {/if}
+      <Button variant="outline" onclick={() => (shareOpen = false)}>Close</Button>
+      <Button onclick={publishShare} disabled={shareBusy || !shareFrontPath.trim()}>
+        <Share2Icon />
+        {shareUrl ? 'Re-publish' : 'Publish'}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+
+<!-- Push picker: shown when sharing a local profile and user is in >1 team -->
+<Dialog.Root bind:open={pushPickerOpen}>
+  <Dialog.Content>
+    <Dialog.Header>
+      <Dialog.Title>Share with which team?</Dialog.Title>
+      <Dialog.Description>
+        {#if pushPickerProfile}
+          "{pushPickerProfile.name}" will be uploaded to the team you pick
+          (profile + math + saved rounds).
+        {/if}
+      </Dialog.Description>
+    </Dialog.Header>
+    <div class="my-4 flex flex-col gap-2">
+      {#each allTeams as t (t.id)}
+        <button
+          type="button"
+          class="flex items-center justify-between rounded-md border px-4 py-3 text-left hover:bg-accent"
+          onclick={() => {
+            const p = pushPickerProfile;
+            pushPickerOpen = false;
+            pushPickerProfile = null;
+            if (p) pushProfileToTeam(p, t.id);
+          }}
+          disabled={busy}
+        >
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{t.name}</span>
+              {#if t.role === 'owner'}
+                <Badge variant="secondary" class="text-[10px]">owner</Badge>
+              {/if}
+            </div>
+            <div class="font-mono-tab text-xs text-muted-foreground">
+              {t.repoOwner}/{t.repoName}
+            </div>
+          </div>
+          <UploadIcon class="h-4 w-4 text-muted-foreground" />
+        </button>
+      {/each}
+    </div>
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => (pushPickerOpen = false)}>Cancel</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
 
 <!-- Drawer: create/edit profile -->
 <Sheet.Root bind:open={drawerOpen}>
