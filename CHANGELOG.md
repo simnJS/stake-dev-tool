@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-04-25
+
+### Fixed
+
+- **Release pipeline now builds `lgs-wasm`** before invoking cargo. The
+  v1 work added a `wasm-pack`-built `crates/lgs-wasm/pkg/` directory
+  embedded into `crates/desktop/src/preview.rs` via `include_dir!()`,
+  but the GitHub Actions workflows (`ci.yml`, `release.yml`) and Tauri's
+  `beforeBuildCommand` weren't wired to generate it — so v1.0.0 CI
+  failed at compile time. Local builds were unaffected because the
+  `pnpm tauri:dev/build` scripts already chained `pnpm wasm:build`.
+
 ## [1.0.0] — 2026-04-25
 
 ### Added
