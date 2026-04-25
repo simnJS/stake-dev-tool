@@ -182,7 +182,12 @@ pub async fn list_games(math_dir: String) -> Result<Vec<GameInfo>, String> {
         .await
         .map_err(|e| format!("{e:#}"))?;
     while let Some(entry) = entries.next_entry().await.map_err(|e| format!("{e:#}"))? {
-        if !entry.file_type().await.map_err(|e| format!("{e:#}"))?.is_dir() {
+        if !entry
+            .file_type()
+            .await
+            .map_err(|e| format!("{e:#}"))?
+            .is_dir()
+        {
             continue;
         }
         let game_dir = entry.path();
@@ -588,7 +593,9 @@ pub async fn open_test_browser(url: String) -> Result<OpenBrowserResult, String>
 
 #[tauri::command]
 pub async fn github_current_user() -> Result<Option<github::GithubUser>, String> {
-    github::auth::current_user().await.map_err(|e| format!("{e:#}"))
+    github::auth::current_user()
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -635,10 +642,7 @@ pub async fn teams_set_active(team_id: Option<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn teams_create(
-    name: String,
-    org: Option<String>,
-) -> Result<teams::Team, String> {
+pub async fn teams_create(name: String, org: Option<String>) -> Result<teams::Team, String> {
     teams::create_team(name, org)
         .await
         .map_err(|e| format!("{e:#}"))
@@ -685,7 +689,9 @@ pub async fn teams_discover() -> Result<Vec<teams::DiscoveredTeam>, String> {
 
 #[tauri::command]
 pub async fn teams_sync(team_id: String) -> Result<teams::SyncReport, String> {
-    teams::sync_team(&team_id).await.map_err(|e| format!("{e:#}"))
+    teams::sync_team(&team_id)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 // ============================================================
@@ -758,10 +764,7 @@ pub async fn teams_list_remote_games(team_id: String) -> Result<Vec<String>, Str
 }
 
 #[tauri::command]
-pub async fn teams_remove_from_catalog(
-    team_id: String,
-    profile_id: String,
-) -> Result<(), String> {
+pub async fn teams_remove_from_catalog(team_id: String, profile_id: String) -> Result<(), String> {
     teams::remove_from_catalog(&team_id, &profile_id)
         .await
         .map_err(|e| format!("{e:#}"))
@@ -776,7 +779,9 @@ pub async fn teams_push_profile(team_id: String, profile_id: String) -> Result<(
 
 #[tauri::command]
 pub async fn teams_all_catalogs() -> Result<Vec<teams::CatalogEntry>, String> {
-    teams::list_all_catalogs().await.map_err(|e| format!("{e:#}"))
+    teams::list_all_catalogs()
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

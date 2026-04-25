@@ -108,7 +108,9 @@ async fn load() -> Result<TeamsFile> {
 async fn save(file: &TeamsFile) -> Result<()> {
     let path = teams_path()?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).await.context("create teams dir")?;
+        fs::create_dir_all(parent)
+            .await
+            .context("create teams dir")?;
     }
     let bytes = serde_json::to_vec_pretty(file).context("serialize teams")?;
     fs::write(&path, bytes).await.context("write teams.json")?;
@@ -288,8 +290,7 @@ pub async fn create_team(name: String, org: Option<String>) -> Result<Team> {
         team_name: name.clone(),
         created_at: now_ms(),
     };
-    let manifest_bytes =
-        serde_json::to_vec_pretty(&manifest).context("serialize team manifest")?;
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest).context("serialize team manifest")?;
 
     // Retry a few times: the GitHub API can take a second or two after repo
     // creation (with auto_init) before the contents endpoint accepts writes.
@@ -445,7 +446,9 @@ pub async fn remove_from_catalog(team_id: &str, profile_id: &str) -> Result<()> 
             .ok_or_else(|| anyhow!("team not found"))?
     };
     if team.role != TeamRole::Owner {
-        return Err(anyhow!("only the team owner can remove a profile from the catalogue"));
+        return Err(anyhow!(
+            "only the team owner can remove a profile from the catalogue"
+        ));
     }
     let client = GithubClient::from_stored_token()?;
 
@@ -492,10 +495,7 @@ pub async fn remove_from_catalog(team_id: &str, profile_id: &str) -> Result<()> 
             .build()
             .context("build client")?
             .delete(&url)
-            .bearer_auth(
-                crate::github::auth::load_token()?
-                    .ok_or_else(|| anyhow!("no token"))?,
-            )
+            .bearer_auth(crate::github::auth::load_token()?.ok_or_else(|| anyhow!("no token"))?)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
@@ -649,7 +649,7 @@ pub async fn push_local_profile(team_id: &str, profile_id: &str) -> Result<()> {
                 &team.repo_name,
                 &round_path,
                 &round_bytes,
-                &format!("round: {} ({})", round.id[..8].to_string(), profile.game_slug),
+                &format!("round: {} ({})", &round.id[..8], profile.game_slug),
                 round_prev_sha.as_deref(),
             )
             .await
@@ -661,7 +661,9 @@ pub async fn push_local_profile(team_id: &str, profile_id: &str) -> Result<()> {
 
     // Stamp the local profile as belonging to this team so the UI moves it
     // to the team group and exposes the "Pull latest" action.
-    crate::profiles::set_team(profile_id, Some(team_id)).await.ok();
+    crate::profiles::set_team(profile_id, Some(team_id))
+        .await
+        .ok();
 
     Ok(())
 }
@@ -998,8 +1000,7 @@ async fn sync_profiles(client: &GithubClient, team: &Team) -> Result<(u32, u32)>
 
     // Pull remote → local (anything that's on remote but not local or
     // remote is newer).
-    let local_ids: std::collections::HashSet<String> =
-        local.iter().map(|p| p.id.clone()).collect();
+    let local_ids: std::collections::HashSet<String> = local.iter().map(|p| p.id.clone()).collect();
     for (id, entry) in &remote_by_id {
         let path = &entry.path;
         let Some(file) = client
@@ -1050,10 +1051,9 @@ async fn sync_saved_rounds(client: &GithubClient, team: &Team) -> Result<(u32, u
         if let Ok(Some(file)) = client
             .get_file(&team.repo_owner, &team.repo_name, &e.path)
             .await
+            && let Ok(p) = serde_json::from_slice::<crate::profiles::Profile>(&file.content)
         {
-            if let Ok(p) = serde_json::from_slice::<crate::profiles::Profile>(&file.content) {
-                team_slugs.insert(p.game_slug);
-            }
+            team_slugs.insert(p.game_slug);
         }
     }
     let local: Vec<lgs::saved_rounds::SavedRound> = lgs::saved_rounds::list(None)
@@ -1089,11 +1089,12 @@ async fn sync_saved_rounds(client: &GithubClient, team: &Team) -> Result<(u32, u
                 .get_file(&team.repo_owner, &team.repo_name, &path)
                 .await?
             {
-                Some(f) => match serde_json::from_slice::<lgs::saved_rounds::SavedRound>(&f.content)
-                {
-                    Ok(remote_r) => r.updated_at > remote_r.updated_at,
-                    Err(_) => true,
-                },
+                Some(f) => {
+                    match serde_json::from_slice::<lgs::saved_rounds::SavedRound>(&f.content) {
+                        Ok(remote_r) => r.updated_at > remote_r.updated_at,
+                        Err(_) => true,
+                    }
+                }
                 None => true,
             },
         };
@@ -1113,8 +1114,7 @@ async fn sync_saved_rounds(client: &GithubClient, team: &Team) -> Result<(u32, u
         }
     }
 
-    let local_ids: std::collections::HashSet<String> =
-        local.iter().map(|r| r.id.clone()).collect();
+    let local_ids: std::collections::HashSet<String> = local.iter().map(|r| r.id.clone()).collect();
     for (id, entry) in &remote_by_id {
         let Some(file) = client
             .get_file(&team.repo_owner, &team.repo_name, &entry.path)

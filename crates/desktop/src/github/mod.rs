@@ -1,7 +1,7 @@
 pub mod api;
 pub mod auth;
 
-pub use auth::{AuthState, DeviceCode, GithubUser};
+pub use auth::{DeviceCode, GithubUser};
 
 /// OAuth App client ID. Device Flow doesn't use the client secret, so this
 /// string is public and safe to ship in source — GitHub CLI, VS Code, and

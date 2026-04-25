@@ -1,4 +1,3 @@
-mod chunked_release;
 mod commands;
 mod file_chunker;
 mod github;

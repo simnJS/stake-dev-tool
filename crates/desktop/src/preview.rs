@@ -28,6 +28,7 @@ use crate::math_sync::{MathSyncProgress, PROGRESS_EVENT};
 use crate::profiles::Profile;
 use futures_util::stream::{self, StreamExt};
 
+#[allow(clippy::too_many_arguments)]
 fn emit_progress(
     app: &AppHandle,
     slug: &str,
@@ -58,6 +59,7 @@ fn emit_progress(
 /// shipping it intact, a halved subset, or a small representative sample.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MathMode {
     /// Ship the math files exactly as they sit on disk. Preview plays
     /// normally, RTP unchanged. Math is fully public.
@@ -70,19 +72,13 @@ pub enum MathMode {
     /// (no-wins + max + average + spread tiers). Preview is tiny (a few MB),
     /// publishes fast, plays end-to-end with limited variety. Best for a
     /// playable demo link.
+    #[default]
     Sampled,
-}
-
-impl Default for MathMode {
-    fn default() -> Self {
-        MathMode::Sampled
-    }
 }
 
 /// Files copied verbatim into every preview: the harness HTML, runtime JS,
 /// and the example bundle.json (the real one is generated per-preview).
-static PREVIEW_TEMPLATE: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/../lgs-wasm/preview-template");
+static PREVIEW_TEMPLATE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../lgs-wasm/preview-template");
 
 /// `wasm-pack`-built JS glue + .wasm. Refresh by re-running wasm-pack before
 /// each Tauri build. The macro re-scans the directory whenever this source
@@ -139,7 +135,7 @@ fn slug(s: &str) -> String {
 }
 
 /// Write the embedded preview-template + wasm-pkg + the user's bundle.json
-/// + game front + math into `dest_dir`. Idempotent — overwrites whatever is
+/// plus game front + math into `dest_dir`. Idempotent — overwrites whatever is
 /// there.
 async fn assemble_bundle(
     dest_dir: &Path,
@@ -158,7 +154,10 @@ async fn assemble_bundle(
     // 1) Static template (index.html, runtime.js, …). Skip the example
     // bundle so we don't ship it in production previews.
     for f in PREVIEW_TEMPLATE.files() {
-        if f.path().file_name().is_some_and(|n| n == "bundle.example.json") {
+        if f.path()
+            .file_name()
+            .is_some_and(|n| n == "bundle.example.json")
+        {
             continue;
         }
         let out = dest_dir.join(f.path());
@@ -217,9 +216,7 @@ async fn assemble_bundle(
         MathMode::Partial => {
             copy_with_halved_events(&math_src, &math_dest, app, slug_label).await?
         }
-        MathMode::Sampled => {
-            copy_with_sampled_math(&math_src, &math_dest, app, slug_label).await?
-        }
+        MathMode::Sampled => copy_with_sampled_math(&math_src, &math_dest, app, slug_label).await?,
     };
     total_bytes += copied;
 
@@ -227,8 +224,8 @@ async fn assemble_bundle(
 }
 
 /// Copy a math folder into `dst`, but rewrite every book listed in
-/// `index.json` so its events array is truncated to its first half. Weights
-/// + index.json + any other files are passed through unchanged. Mode names
+/// `index.json` so its events array is truncated to its first half. Weights,
+/// index.json and any other files are passed through unchanged. Mode names
 /// are pulled from `index.json` so this works for any game.
 async fn copy_with_halved_events(
     src: &Path,
@@ -258,15 +255,15 @@ async fn copy_with_halved_events(
     let mut book_files: Vec<String> = Vec::new();
     let mut weight_files: Vec<String> = Vec::new();
     for m in modes {
-        if let Some(s) = m.get("events").and_then(|v| v.as_str()) {
-            if !book_files.contains(&s.to_string()) {
-                book_files.push(s.to_string());
-            }
+        if let Some(s) = m.get("events").and_then(|v| v.as_str())
+            && !book_files.contains(&s.to_string())
+        {
+            book_files.push(s.to_string());
         }
-        if let Some(s) = m.get("weights").and_then(|v| v.as_str()) {
-            if !weight_files.contains(&s.to_string()) {
-                weight_files.push(s.to_string());
-            }
+        if let Some(s) = m.get("weights").and_then(|v| v.as_str())
+            && !weight_files.contains(&s.to_string())
+        {
+            weight_files.push(s.to_string());
         }
     }
 
@@ -368,8 +365,7 @@ where
 {
     let bytes = fs::read(path).await?;
     let halved = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        let decompressed = zstd::decode_all(&bytes[..])
-            .map_err(|e| anyhow!("zstd decode: {e}"))?;
+        let decompressed = zstd::decode_all(&bytes[..]).map_err(|e| anyhow!("zstd decode: {e}"))?;
         let total = decompressed.len() as u64;
 
         let mut out = Vec::with_capacity(decompressed.len() / 2);
@@ -414,11 +410,8 @@ where
         encoder
             .multithread(workers)
             .map_err(|e| anyhow!("zstd multithread({workers}): {e}"))?;
-        std::io::Write::write_all(&mut encoder, &out)
-            .map_err(|e| anyhow!("zstd write: {e}"))?;
-        let compressed = encoder
-            .finish()
-            .map_err(|e| anyhow!("zstd finish: {e}"))?;
+        std::io::Write::write_all(&mut encoder, &out).map_err(|e| anyhow!("zstd write: {e}"))?;
+        let compressed = encoder.finish().map_err(|e| anyhow!("zstd finish: {e}"))?;
         Ok(compressed)
     })
     .await
@@ -466,9 +459,7 @@ fn write_halved_line(line: &[u8], out: &mut Vec<u8>) {
                     }
                 }
                 b'}' => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
+                    depth = depth.saturating_sub(1);
                 }
                 b',' if depth == 1 => commas.push(j),
                 _ => {}
@@ -487,7 +478,11 @@ fn write_halved_line(line: &[u8], out: &mut Vec<u8>) {
     let inner_has_content = line[array_open + 1..close_idx]
         .iter()
         .any(|b| !matches!(b, b' ' | b'\t' | b'\n' | b'\r'));
-    let item_count = if inner_has_content { commas.len() + 1 } else { 0 };
+    let item_count = if inner_has_content {
+        commas.len() + 1
+    } else {
+        0
+    };
     let keep = item_count.div_ceil(2);
 
     if keep >= item_count {
@@ -572,8 +567,7 @@ async fn copy_with_sampled_math(
                 .with_context(|| format!("read {}", mode.weights))?;
             let entries = parse_weights(&weights_text)?;
             let picked = sample_event_ids(&entries);
-            let picked_set: std::collections::HashSet<u32> =
-                picked.iter().copied().collect();
+            let picked_set: std::collections::HashSet<u32> = picked.iter().copied().collect();
 
             let mut new_csv = String::new();
             for e in &entries {
@@ -591,13 +585,12 @@ async fn copy_with_sampled_math(
                 .await
                 .with_context(|| format!("read {}", mode.events))?;
             let mode_name = mode.name.clone();
-            let books_out =
-                tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-                    stream_filter_books(&books_zst, &picked_set)
-                        .with_context(|| format!("filter books for mode '{mode_name}'"))
-                })
-                .await
-                .map_err(|e| anyhow!("blocking task: {e}"))??;
+            let books_out = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+                stream_filter_books(&books_zst, &picked_set)
+                    .with_context(|| format!("filter books for mode '{mode_name}'"))
+            })
+            .await
+            .map_err(|e| anyhow!("blocking task: {e}"))??;
             let books_out_len = books_out.len() as u64;
             fs::write(dst.join(&mode.events), &books_out).await?;
 
@@ -639,38 +632,39 @@ fn stream_filter_books(
     picked: &std::collections::HashSet<u32>,
 ) -> Result<Vec<u8>> {
     use std::io::Read;
-    let mut decoder = zstd::stream::read::Decoder::new(books_zst)
-        .map_err(|e| anyhow!("zstd decoder: {e}"))?;
+    let mut decoder =
+        zstd::stream::read::Decoder::new(books_zst).map_err(|e| anyhow!("zstd decoder: {e}"))?;
 
     let mut out_lines = Vec::with_capacity(picked.len() * 2048);
     let mut line_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
     let mut chunk = vec![0u8; 1024 * 1024];
 
     loop {
-        let n = decoder.read(&mut chunk).map_err(|e| anyhow!("zstd read: {e}"))?;
+        let n = decoder
+            .read(&mut chunk)
+            .map_err(|e| anyhow!("zstd read: {e}"))?;
         if n == 0 {
             break;
         }
         line_buf.extend_from_slice(&chunk[..n]);
         while let Some(nl) = line_buf.iter().position(|&b| b == b'\n') {
             let line = &line_buf[..nl];
-            if let Some(id) = extract_book_id(line) {
-                if picked.contains(&id) {
-                    out_lines.extend_from_slice(line);
-                    out_lines.push(b'\n');
-                }
+            if let Some(id) = extract_book_id(line)
+                && picked.contains(&id)
+            {
+                out_lines.extend_from_slice(line);
+                out_lines.push(b'\n');
             }
             line_buf.drain(..=nl);
         }
     }
     // Trailing line without `\n`.
-    if !line_buf.is_empty() {
-        if let Some(id) = extract_book_id(&line_buf) {
-            if picked.contains(&id) {
-                out_lines.extend_from_slice(&line_buf);
-                out_lines.push(b'\n');
-            }
-        }
+    if !line_buf.is_empty()
+        && let Some(id) = extract_book_id(&line_buf)
+        && picked.contains(&id)
+    {
+        out_lines.extend_from_slice(&line_buf);
+        out_lines.push(b'\n');
     }
 
     let workers = std::thread::available_parallelism()
@@ -682,8 +676,7 @@ fn stream_filter_books(
     encoder
         .multithread(workers)
         .map_err(|e| anyhow!("zstd multithread: {e}"))?;
-    std::io::Write::write_all(&mut encoder, &out_lines)
-        .map_err(|e| anyhow!("zstd write: {e}"))?;
+    std::io::Write::write_all(&mut encoder, &out_lines).map_err(|e| anyhow!("zstd write: {e}"))?;
     encoder.finish().map_err(|e| anyhow!("zstd finish: {e}"))
 }
 
@@ -691,11 +684,14 @@ fn stream_filter_books(
 /// distribution: ~50 no-wins, the max-payout zone, the avg-winner, and
 /// spread across quartiles of remaining winners.
 fn sample_event_ids(entries: &[WeightEntry]) -> Vec<u32> {
-    use rand::seq::SliceRandom;
     use rand::SeedableRng;
+    use rand::seq::SliceRandom;
     let mut rng = rand::rngs::StdRng::seed_from_u64(0xc0ffee);
 
-    let no_wins: Vec<&WeightEntry> = entries.iter().filter(|e| e.payout_multiplier == 0).collect();
+    let no_wins: Vec<&WeightEntry> = entries
+        .iter()
+        .filter(|e| e.payout_multiplier == 0)
+        .collect();
     let mut winners: Vec<&WeightEntry> =
         entries.iter().filter(|e| e.payout_multiplier > 0).collect();
     winners.sort_by_key(|e| e.payout_multiplier);
@@ -859,9 +855,7 @@ fn find_subseq(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Insert `<script src="../preview-shim.js"></script>` immediately after
@@ -932,7 +926,10 @@ pub async fn build_local(
         .ok_or_else(|| anyhow!("profile not found"))?;
     let front = PathBuf::from(&front_path);
     if !front.is_dir() {
-        return Err(anyhow!("front path is not a directory: {}", front.display()));
+        return Err(anyhow!(
+            "front path is not a directory: {}",
+            front.display()
+        ));
     }
     // Folder is keyed on profile.id (immutable UUID) rather than the user-
     // editable name so renaming a profile doesn't orphan the previous build.
@@ -969,7 +966,10 @@ async fn publish_inner(
         .ok_or_else(|| anyhow!("profile not found"))?;
     let front = PathBuf::from(&front_path);
     if !front.is_dir() {
-        return Err(anyhow!("front path is not a directory: {}", front.display()));
+        return Err(anyhow!(
+            "front path is not a directory: {}",
+            front.display()
+        ));
     }
 
     // `preview_label` is purely cosmetic — it identifies the run in progress
@@ -996,7 +996,15 @@ async fn publish_inner(
         .join("stake-dev-tool-preview-build")
         .join(&profile.id);
     let _ = fs::remove_dir_all(&staging).await;
-    assemble_bundle(&staging, &profile, &front, math_mode, Some(app), &preview_label).await?;
+    assemble_bundle(
+        &staging,
+        &profile,
+        &front,
+        math_mode,
+        Some(app),
+        &preview_label,
+    )
+    .await?;
 
     let user = crate::github::auth::current_user()
         .await?
@@ -1088,7 +1096,7 @@ async fn publish_inner(
 
     let owner_arc = owner.clone();
     let repo_name = repo.name.clone();
-    let blobs_stream = stream::iter(to_upload.into_iter())
+    let blobs_stream = stream::iter(to_upload)
         .map(|(rel, bytes)| {
             let client = client.clone();
             let owner = owner_arc.clone();
@@ -1103,7 +1111,8 @@ async fn publish_inner(
                     .create_blob(&owner, &repo_name, &bytes)
                     .await
                     .with_context(|| format!("blob {rel}"))?;
-                let new_bytes = bytes_state.fetch_add(size, std::sync::atomic::Ordering::Relaxed) + size;
+                let new_bytes =
+                    bytes_state.fetch_add(size, std::sync::atomic::Ordering::Relaxed) + size;
                 let new_files = files_state.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 emit_progress(
                     &app,
@@ -1159,9 +1168,18 @@ async fn publish_inner(
         .create_tree(&owner, &repo.name, &head.tree_sha, &entries)
         .await
         .context("create tree")?;
-    let commit_msg = format!("preview: publish {} ({} files)", profile.name, files_uploaded);
+    let commit_msg = format!(
+        "preview: publish {} ({} files)",
+        profile.name, files_uploaded
+    );
     let new_commit = client
-        .create_commit(&owner, &repo.name, &commit_msg, &new_tree, &[&head.commit_sha])
+        .create_commit(
+            &owner,
+            &repo.name,
+            &commit_msg,
+            &new_tree,
+            &[&head.commit_sha],
+        )
         .await
         .context("create commit")?;
     client
@@ -1188,16 +1206,20 @@ async fn publish_inner(
         .await
         .context("enable GitHub Pages")?;
 
-    let url = format!(
-        "https://{}.github.io/{}/",
-        owner.to_lowercase(),
-        repo_name
-    );
+    let url = format!("https://{}.github.io/{}/", owner.to_lowercase(), repo_name);
 
     // Pages can take 10 sec - 2 min to build + propagate after the API
     // call returns. Polling the URL until we get a 200 means the toast
     // doesn't shout "done" while the link is still 404.
-    wait_for_pages(app, &preview_label, &url, bundle_file_count, bytes_uploaded, bundle_total_bytes).await;
+    wait_for_pages(
+        app,
+        &preview_label,
+        &url,
+        bundle_file_count,
+        bytes_uploaded,
+        bundle_total_bytes,
+    )
+    .await;
 
     emit_progress(
         app,
@@ -1263,20 +1285,6 @@ async fn wait_for_pages(
     }
 }
 
-/// Backward-compat wrapper without progress events. Used by anything that
-/// can't pass an AppHandle (currently nothing — the Tauri command goes
-/// through `publish_with_progress`).
-#[allow(dead_code)]
-pub async fn publish(
-    profile_id: &str,
-    front_path: String,
-    math_mode: MathMode,
-) -> Result<PublishReport> {
-    Err(anyhow!(
-        "publish without AppHandle no longer supported — use publish_with_progress"
-    ))?
-}
-
 /// Drop a preview by deleting its folder from the preview repo. The repo
 /// itself stays.
 pub async fn unpublish(profile_id: &str) -> Result<()> {
@@ -1300,32 +1308,6 @@ pub async fn unpublish(profile_id: &str) -> Result<()> {
         .delete_repo(&user.login, &repo_name)
         .await
         .with_context(|| format!("delete preview repo {}/{}", user.login, repo_name))?;
-    Ok(())
-}
-
-async fn delete_dir(
-    client: &GithubClient,
-    owner: &str,
-    repo: &str,
-    path: &str,
-) -> Result<()> {
-    let entries = client.list_dir(owner, repo, path).await.unwrap_or_default();
-    for e in entries {
-        if e.kind == "dir" {
-            Box::pin(delete_dir(client, owner, repo, &e.path)).await?;
-        } else if e.kind == "file" {
-            client
-                .delete_file(
-                    owner,
-                    repo,
-                    &e.path,
-                    &e.sha,
-                    &format!("preview: drop {}", e.path),
-                )
-                .await
-                .ok();
-        }
-    }
     Ok(())
 }
 
@@ -1369,12 +1351,14 @@ async fn collect_relative(root: &Path, dir: &Path, out: &mut Vec<String>) -> Res
     Ok(())
 }
 
-async fn create_public_repo(client: &GithubClient, name: &str) -> Result<crate::github::api::RepoInfo> {
+async fn create_public_repo(
+    client: &GithubClient,
+    name: &str,
+) -> Result<crate::github::api::RepoInfo> {
     // The existing helper creates private repos; we need public for free
     // GitHub Pages. Inline the call here.
     let url = "https://api.github.com/user/repos";
-    let token = crate::github::auth::load_token()?
-        .ok_or_else(|| anyhow!("no token"))?;
+    let token = crate::github::auth::load_token()?.ok_or_else(|| anyhow!("no token"))?;
     let res = reqwest::Client::builder()
         .user_agent("stake-dev-tool")
         .build()?
@@ -1403,7 +1387,11 @@ async fn create_public_repo(client: &GithubClient, name: &str) -> Result<crate::
     // Wait until the contents endpoint is ready (auto_init is async on
     // GitHub's side).
     for _ in 0..6 {
-        if client.get_file(&r.owner.login, &r.name, "README.md").await.is_ok() {
+        if client
+            .get_file(&r.owner.login, &r.name, "README.md")
+            .await
+            .is_ok()
+        {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -1413,8 +1401,7 @@ async fn create_public_repo(client: &GithubClient, name: &str) -> Result<crate::
 }
 
 async fn enable_pages(_client: &GithubClient, owner: &str, repo: &str) -> Result<()> {
-    let token = crate::github::auth::load_token()?
-        .ok_or_else(|| anyhow!("no token"))?;
+    let token = crate::github::auth::load_token()?.ok_or_else(|| anyhow!("no token"))?;
     let url = format!("https://api.github.com/repos/{owner}/{repo}/pages");
     let res = reqwest::Client::builder()
         .user_agent("stake-dev-tool")
@@ -1429,7 +1416,8 @@ async fn enable_pages(_client: &GithubClient, owner: &str, repo: &str) -> Result
         .send()
         .await?;
     let status = res.status();
-    if status.is_success() || status == reqwest::StatusCode::CONFLICT
+    if status.is_success()
+        || status == reqwest::StatusCode::CONFLICT
         || status == reqwest::StatusCode::UNPROCESSABLE_ENTITY
     {
         // 409/422 = already enabled.

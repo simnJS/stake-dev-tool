@@ -135,7 +135,11 @@ fn release_title(game_slug: &str) -> String {
 }
 
 fn chunk_count(size: u64) -> u64 {
-    if size == 0 { 1 } else { size.div_ceil(CHUNK_SIZE) }
+    if size == 0 {
+        1
+    } else {
+        size.div_ceil(CHUNK_SIZE)
+    }
 }
 
 fn chunk_asset_name(file_rel_path: &str, part_ix: u64, total_parts: u64, sha: &str) -> String {
@@ -241,11 +245,7 @@ async fn build_manifest(
 
 /// Stream the file and compute both the whole-file SHA-256 and per-chunk
 /// metadata in a single pass. Does not load the whole file into memory.
-async fn hash_and_chunk(
-    path: &Path,
-    rel: &str,
-    size: u64,
-) -> Result<(String, Vec<ManifestChunk>)> {
+async fn hash_and_chunk(path: &Path, rel: &str, size: u64) -> Result<(String, Vec<ManifestChunk>)> {
     let mut file = fs::File::open(path)
         .await
         .with_context(|| format!("open {}", path.display()))?;
@@ -308,11 +308,7 @@ async fn fetch_manifest(
     Ok(Some((manifest, file.sha)))
 }
 
-async fn ensure_release(
-    client: &GithubClient,
-    team: &Team,
-    game_slug: &str,
-) -> Result<Release> {
+async fn ensure_release(client: &GithubClient, team: &Team, game_slug: &str) -> Result<Release> {
     let tag = release_tag(game_slug);
     if let Some(r) = client
         .find_release_by_tag(&team.repo_owner, &team.repo_name, &tag)
@@ -370,7 +366,10 @@ pub async fn push(
     let client = GithubClient::from_stored_token()?;
     let game_path = PathBuf::from(&game_path);
     if !game_path.is_dir() {
-        return Err(anyhow!("game path is not a directory: {}", game_path.display()));
+        return Err(anyhow!(
+            "game path is not a directory: {}",
+            game_path.display()
+        ));
     }
 
     emit_progress(
@@ -392,11 +391,8 @@ pub async fn push(
     let manifest_prev_sha = remote.as_ref().map(|(_, s)| s.clone());
 
     let release = ensure_release(&client, &team, game_slug).await?;
-    let existing_assets: std::collections::HashMap<String, &ReleaseAsset> = release
-        .assets
-        .iter()
-        .map(|a| (a.name.clone(), a))
-        .collect();
+    let existing_assets: std::collections::HashMap<String, &ReleaseAsset> =
+        release.assets.iter().map(|a| (a.name.clone(), a)).collect();
 
     // A file is only "in sync" if BOTH the SHA matches AND every chunk named
     // in the remote manifest is actually present on the release. We verify
@@ -405,8 +401,7 @@ pub async fn push(
     // recreated, …). Trusting the manifest alone gives false "already in
     // sync" reports.
     let is_in_sync = |lf: &ManifestFile| -> bool {
-        let Some(rf) = remote_manifest
-            .and_then(|m| m.files.iter().find(|f| f.name == lf.name))
+        let Some(rf) = remote_manifest.and_then(|m| m.files.iter().find(|f| f.name == lf.name))
         else {
             return false;
         };
@@ -596,11 +591,8 @@ pub async fn pull(
         .find_release_by_tag(&team.repo_owner, &team.repo_name, &release_tag(game_slug))
         .await?
         .ok_or_else(|| anyhow!("no release for {game_slug} in this team"))?;
-    let assets: std::collections::HashMap<String, &ReleaseAsset> = release
-        .assets
-        .iter()
-        .map(|a| (a.name.clone(), a))
-        .collect();
+    let assets: std::collections::HashMap<String, &ReleaseAsset> =
+        release.assets.iter().map(|a| (a.name.clone(), a)).collect();
 
     // Pre-flight: list every chunk the manifest expects and confirm each one
     // is actually on the release. If any are missing, fail fast with a clear
@@ -634,14 +626,14 @@ pub async fn pull(
 
     for (file_ix, f) in manifest.files.iter().enumerate() {
         let out = dest.join(&f.name);
-        if let Ok(meta) = fs::metadata(&out).await {
-            if meta.len() == f.size {
-                let (existing_sha, _) = hash_and_chunk(&out, &f.name, f.size).await?;
-                if existing_sha == f.sha256 {
-                    files_skipped += 1;
-                    bytes_uploaded += f.size;
-                    continue;
-                }
+        if let Ok(meta) = fs::metadata(&out).await
+            && meta.len() == f.size
+        {
+            let (existing_sha, _) = hash_and_chunk(&out, &f.name, f.size).await?;
+            if existing_sha == f.sha256 {
+                files_skipped += 1;
+                bytes_uploaded += f.size;
+                continue;
             }
         }
         if let Some(parent) = out.parent() {

@@ -105,17 +105,18 @@ pub async fn request_device_code() -> Result<DeviceCode> {
     })
 }
 
-/// Step 2 of Device Flow: poll once for a token. Call every `interval` seconds
-/// until the user has authorized or the code expires.
-///
-/// Returns:
-/// - `Ok(Some(token))` — user authorized, token stored in keyring, AuthState returned
-/// - `Ok(None)` — not authorized yet, keep polling
-/// - `Err(..)` — fatal error (expired, denied, network, etc.)
 /// Default interval to request when GitHub doesn't specify one in a
 /// `slow_down` response. 5s is the spec minimum.
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 
+/// Step 2 of Device Flow: poll once for a token. Call every `interval` seconds
+/// until the user has authorized or the code expires.
+///
+/// Returns:
+///
+/// - `Ok(Some(token))` — user authorized, token stored in keyring, AuthState returned
+/// - `Ok(None)` — not authorized yet, keep polling
+/// - `Err(..)` — fatal error (expired, denied, network, etc.)
 pub async fn poll_for_token(device_code: &str, current_interval: u64) -> Result<DeviceFlowPoll> {
     let client = http_client()?;
     let res = client
@@ -134,9 +135,8 @@ pub async fn poll_for_token(device_code: &str, current_interval: u64) -> Result<
     let body_text = res.text().await.context("read token body")?;
     tracing::debug!(status = %status, body = %body_text, "device flow poll response");
 
-    let parsed: TokenResponse = serde_json::from_str(&body_text).with_context(|| {
-        format!("parse token response (status {status}, body: {body_text})")
-    })?;
+    let parsed: TokenResponse = serde_json::from_str(&body_text)
+        .with_context(|| format!("parse token response (status {status}, body: {body_text})"))?;
 
     if let Some(token) = parsed.access_token {
         tracing::info!("device flow: got access token");

@@ -150,12 +150,7 @@ impl GithubClient {
 
     /// Upload `bytes` as a blob, returns its SHA. Always base64-encoded so
     /// binary files (.wasm, fonts, images, …) round-trip cleanly.
-    pub async fn create_blob(
-        &self,
-        owner: &str,
-        name: &str,
-        bytes: &[u8],
-    ) -> Result<String> {
+    pub async fn create_blob(&self, owner: &str, name: &str, bytes: &[u8]) -> Result<String> {
         let url = format!("{API_BASE}/repos/{owner}/{name}/git/blobs");
         let res = self
             .json_request(reqwest::Method::POST, &url)
@@ -284,12 +279,7 @@ impl GithubClient {
         Ok(())
     }
 
-    pub async fn invite_collaborator(
-        &self,
-        owner: &str,
-        name: &str,
-        username: &str,
-    ) -> Result<()> {
+    pub async fn invite_collaborator(&self, owner: &str, name: &str, username: &str) -> Result<()> {
         let url = format!("{API_BASE}/repos/{owner}/{name}/collaborators/{username}");
         let res = self
             .json_request(reqwest::Method::PUT, &url)
@@ -357,12 +347,7 @@ impl GithubClient {
         Ok(all)
     }
 
-    pub async fn set_repo_topics(
-        &self,
-        owner: &str,
-        name: &str,
-        topics: &[&str],
-    ) -> Result<()> {
+    pub async fn set_repo_topics(&self, owner: &str, name: &str, topics: &[&str]) -> Result<()> {
         let url = format!("{API_BASE}/repos/{owner}/{name}/topics");
         let res = self
             .json_request(reqwest::Method::PUT, &url)
@@ -380,12 +365,7 @@ impl GithubClient {
     }
 
     /// Fetch a file's content + SHA. Returns None if the file doesn't exist.
-    pub async fn get_file(
-        &self,
-        owner: &str,
-        name: &str,
-        path: &str,
-    ) -> Result<Option<RepoFile>> {
+    pub async fn get_file(&self, owner: &str, name: &str, path: &str) -> Result<Option<RepoFile>> {
         let url = format!("{API_BASE}/repos/{owner}/{name}/contents/{path}");
         let res = self
             .json_request(reqwest::Method::GET, &url)
@@ -411,12 +391,7 @@ impl GithubClient {
     }
 
     /// List directory entries. Returns empty vec if the directory doesn't exist.
-    pub async fn list_dir(
-        &self,
-        owner: &str,
-        name: &str,
-        path: &str,
-    ) -> Result<Vec<RepoEntry>> {
+    pub async fn list_dir(&self, owner: &str, name: &str, path: &str) -> Result<Vec<RepoEntry>> {
         let url = format!("{API_BASE}/repos/{owner}/{name}/contents/{path}");
         let res = self
             .json_request(reqwest::Method::GET, &url)

@@ -37,12 +37,14 @@
     ca,
     checkForUpdates,
     downloadAndInstallUpdate,
+    githubAuth,
     lgs,
     pickFolder,
     profiles as profilesApi,
     settings as settingsApi,
     teamsApi,
     type CaStatus,
+    type GithubUser,
     type InspectedGame,
     type LgsStatus,
     type Profile,
@@ -52,6 +54,11 @@
     type UpdateInfo
   } from '$lib/api';
   import * as Dialog from '$lib/components/ui/dialog';
+  import GithubSignInDialog from '$lib/components/GithubSignInDialog.svelte';
+  import KeyRoundIcon from '@lucide/svelte/icons/key-round';
+  import LogOutIcon from '@lucide/svelte/icons/log-out';
+  import LogInIcon from '@lucide/svelte/icons/log-in';
+  import SettingsIcon from '@lucide/svelte/icons/settings-2';
 
   import DownloadCloudIcon from '@lucide/svelte/icons/download-cloud';
   import UsersRoundIcon from '@lucide/svelte/icons/users-round';
@@ -60,11 +67,58 @@
   import CopyIcon from '@lucide/svelte/icons/copy';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 
+  const LGS_PORT_LS = 'sdt.lgsPort';
   const DEFAULT_PORT = 3001;
   const LS_CLOSE_AFTER = 'sdt.closeAfterLaunch';
 
+  // Persisted port choice (1024-65535). Stored as number; falls back to default.
+  let lgsPort = $state<number>(DEFAULT_PORT);
+  let portSettingsOpen = $state(false);
+
+  // GitHub auth state — surfaced in the topbar so sign-in is reachable from
+  // anywhere (not buried behind the Teams page).
+  let githubUser = $state<GithubUser | null>(null);
+  let signInOpen = $state(false);
+
+  async function refreshGithubUser() {
+    try {
+      githubUser = await githubAuth.currentUser();
+    } catch {
+      githubUser = null;
+    }
+  }
+
+  async function onGithubSignedIn(u: GithubUser) {
+    githubUser = u;
+  }
+
+  async function signOutGithub() {
+    if (!confirm('Sign out of GitHub? Your local teams will remain.')) return;
+    try {
+      await githubAuth.logout();
+      githubUser = null;
+      toast.success('Signed out');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function clampPort(p: number): number {
+    if (!Number.isFinite(p)) return DEFAULT_PORT;
+    return Math.min(65535, Math.max(1024, Math.floor(p)));
+  }
+
+  function applyLgsPort(next: number) {
+    lgsPort = clampPort(next);
+    localStorage.setItem(LGS_PORT_LS, String(lgsPort));
+  }
+
   let status = $state<LgsStatus>({ running: false, bound_addr: null, math_dir: null });
-  let caState = $state<CaStatus>({ installed: false, caPath: '' });
+  // `null` until the first ca.status() round-trip completes — prevents the
+  // "Install Local CA" banner from flashing for ~300ms when returning to this
+  // page (e.g. from /teams), which happens because `installed: false` is the
+  // default but the real state usually IS installed.
+  let caState = $state<CaStatus | null>(null);
   let updateInfo = $state<UpdateInfo | null>(null);
   let checkingUpdate = $state(false);
   let installingUpdate = $state(false);
@@ -118,6 +172,12 @@
         const stored = localStorage.getItem(LS_CLOSE_AFTER);
         if (stored !== null) closeAfterLaunch = stored === '1';
 
+        const storedPort = localStorage.getItem(LGS_PORT_LS);
+        if (storedPort !== null) {
+          const parsed = Number.parseInt(storedPort, 10);
+          if (Number.isFinite(parsed)) lgsPort = clampPort(parsed);
+        }
+
         status = await lgs.status();
         caState = await ca.status();
         savedProfiles = await profilesApi.list();
@@ -125,6 +185,7 @@
         resolutions = s.resolutions;
         refreshProfileReadiness().catch(() => {});
         refreshTeamsAndCatalog().catch(() => {});
+        refreshGithubUser().catch(() => {});
       } catch (e) {
         console.error(e);
       }
@@ -194,7 +255,30 @@
   async function ensureLgsRunning(mathDir: string) {
     if (status.running && status.math_dir === mathDir) return;
     if (status.running) status = await lgs.stop();
-    status = await lgs.start(DEFAULT_PORT, mathDir);
+    status = await lgs.start(lgsPort, mathDir);
+  }
+
+  async function applyLgsPortAndRestart(next: number) {
+    const port = clampPort(next);
+    if (port === lgsPort && !status.running) {
+      applyLgsPort(port);
+      portSettingsOpen = false;
+      return;
+    }
+    applyLgsPort(port);
+    if (status.running && status.math_dir) {
+      const mathDir = status.math_dir;
+      try {
+        status = await lgs.stop();
+        status = await lgs.start(port, mathDir);
+        toast.success(`LGS restarted on port ${port}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    } else {
+      toast.success(`Port set to ${port}. Will be used next time the LGS starts.`);
+    }
+    portSettingsOpen = false;
   }
 
   async function toggleLgs() {
@@ -582,7 +666,7 @@
         gameSlug: inspected.slug,
         v: String(Date.now())
       });
-      const port = (status.bound_addr ?? '').split(':').pop() ?? `${DEFAULT_PORT}`;
+      const port = (status.bound_addr ?? '').split(':').pop() ?? `${lgsPort}`;
       const testUrl = `https://localhost:${port}/test/?${params.toString()}`;
 
       try {
@@ -713,64 +797,133 @@
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-3">
       <Tooltip.Provider delayDuration={200}>
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant="outline"
-                size="lg"
-                onclick={toggleLgs}
-                disabled={busy || (!status.running && !hasProfiles)}
-              >
-                {#if status.running}
-                  <span class="status-dot status-dot-live pulse-gentle"></span>
-                  <span class="font-mono-tab text-sm">{status.bound_addr}</span>
-                {:else}
-                  <span class="status-dot status-dot-off"></span>
-                  <span class="text-sm">LGS offline</span>
-                {/if}
-              </Button>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content>{status.running ? 'Click to stop' : 'Click to start'}</Tooltip.Content>
-        </Tooltip.Root>
+        <!-- Group 1: LGS state + port (segmented pill) — primary affordance.
+             Wrapper is h-9 (matching Button size="default") so it aligns with
+             the sibling GitHub button without a 2px border-induced offset. -->
+        <div class="flex h-9 items-stretch overflow-hidden rounded-md border bg-card shadow-sm">
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={toggleLgs}
+                  disabled={busy || (!status.running && !hasProfiles)}
+                  class="flex items-center gap-2 px-3 text-sm transition hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {#if status.running}
+                    <span class="status-dot status-dot-live pulse-gentle"></span>
+                    <span class="font-mono-tab">{status.bound_addr}</span>
+                  {:else}
+                    <span class="status-dot status-dot-off"></span>
+                    <span>LGS</span>
+                    <span class="font-mono-tab text-muted-foreground">:{lgsPort}</span>
+                  {/if}
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>{status.running ? 'Click to stop LGS' : 'Click to start LGS'}</Tooltip.Content>
+          </Tooltip.Root>
 
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant="ghost"
-                size="icon-lg"
-                onclick={() => goto('/teams')}
-                aria-label="Teams"
-              >
-                <UsersIcon />
-              </Button>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content>Teams</Tooltip.Content>
-        </Tooltip.Root>
+          <div class="w-px self-stretch bg-border"></div>
 
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant="ghost"
-                size="icon-lg"
-                onclick={() => checkUpdate(false)}
-                disabled={checkingUpdate || installingUpdate}
-              >
-                <RefreshIcon class={checkingUpdate ? 'animate-spin' : ''} />
-              </Button>
-            {/snippet}
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  onclick={() => (portSettingsOpen = true)}
+                  aria-label="LGS port settings"
+                  class="flex items-center justify-center px-2.5 text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                >
+                  <SettingsIcon class="h-4 w-4" />
+                </button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>LGS port settings</Tooltip.Content>
+          </Tooltip.Root>
+        </div>
+
+        <!-- Group 2: Account — secondary -->
+        {#if githubUser}
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="outline"
+                  size="default"
+                  onclick={signOutGithub}
+                  class="gap-2"
+                >
+                  <KeyRoundIcon class="h-4 w-4 text-emerald-500" />
+                  <span class="font-mono-tab text-sm">@{githubUser?.login ?? ''}</span>
+                  <LogOutIcon class="h-3.5 w-3.5 opacity-50" />
+                </Button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>Signed in to GitHub — click to sign out</Tooltip.Content>
+          </Tooltip.Root>
+        {:else}
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="outline"
+                  size="default"
+                  onclick={() => (signInOpen = true)}
+                  class="gap-2"
+                >
+                  <LogInIcon class="h-4 w-4" />
+                  <span class="text-sm">Sign in</span>
+                </Button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>GitHub — required for Teams + Share preview</Tooltip.Content>
+          </Tooltip.Root>
+        {/if}
+
+        <!-- Group 3: Navigation — tertiary -->
+        <div class="ml-1 flex items-center gap-1 border-l pl-3">
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="ghost"
+                  size="icon"
+                  onclick={() => goto('/teams')}
+                  aria-label="Teams"
+                >
+                  <UsersIcon class="h-4 w-4" />
+                </Button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>Teams</Tooltip.Content>
+          </Tooltip.Root>
+
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="ghost"
+                  size="icon"
+                  onclick={() => checkUpdate(false)}
+                  disabled={checkingUpdate || installingUpdate}
+                  aria-label="Check for updates"
+                >
+                  <RefreshIcon class="h-4 w-4 {checkingUpdate ? 'animate-spin' : ''}" />
+                </Button>
+              {/snippet}
           </Tooltip.Trigger>
-          <Tooltip.Content>Check for updates</Tooltip.Content>
-        </Tooltip.Root>
+            <Tooltip.Content>Check for updates</Tooltip.Content>
+          </Tooltip.Root>
+        </div>
       </Tooltip.Provider>
     </div>
   </header>
@@ -817,8 +970,9 @@
     </Card.Root>
   {/if}
 
-  <!-- CA setup -->
-  {#if !caState.installed}
+  <!-- CA setup — only render once the status check has resolved, otherwise
+       the banner flickers in for half a second every time this page mounts. -->
+  {#if caState && !caState.installed}
     <Card.Root class="fade-in border-amber-500/30 bg-amber-500/5">
       <Card.Content class="flex items-start gap-4 pt-6">
         <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
@@ -1246,7 +1400,7 @@
     </div>
 
     <div class="flex items-center gap-4 text-muted-foreground">
-      {#if caState.installed}
+      {#if caState?.installed}
         <span class="flex items-center gap-2">
           <ShieldIcon class="h-4 w-4 text-emerald-500" />
           <span>CA trusted</span>
@@ -1281,7 +1435,26 @@
       </Dialog.Description>
     </Dialog.Header>
 
-    <div class="my-4 flex flex-col gap-4">
+    {#if !githubUser}
+      <!-- Sign-in CTA: previews need a GitHub repo to host the bundle.
+           Surfaces auth here so users don't have to detour through Teams. -->
+      <div class="my-4 flex flex-col items-start gap-3 rounded-md border bg-card/50 p-4">
+        <div class="flex items-center gap-2">
+          <KeyRoundIcon class="h-5 w-5" />
+          <p class="text-sm font-semibold">Sign in to GitHub to publish</p>
+        </div>
+        <p class="text-xs text-muted-foreground">
+          Each preview lives in a public GitHub repo under your account. Sign in once,
+          then publish/unpublish from here without leaving this dialog.
+        </p>
+        <Button onclick={() => (signInOpen = true)} disabled={shareBusy}>
+          <LogInIcon class="h-4 w-4" />
+          Sign in with GitHub
+        </Button>
+      </div>
+    {/if}
+
+    <div class="my-4 flex flex-col gap-4" class:opacity-50={!githubUser} class:pointer-events-none={!githubUser}>
       <div class="flex flex-col gap-2">
         <Label for="frontPath">Built front folder</Label>
         <div class="flex gap-2">
@@ -1406,7 +1579,7 @@
         </Button>
       {/if}
       <Button variant="outline" onclick={() => (shareOpen = false)}>Close</Button>
-      <Button onclick={publishShare} disabled={shareBusy || !shareFrontPath.trim()}>
+      <Button onclick={publishShare} disabled={shareBusy || !shareFrontPath.trim() || !githubUser}>
         <Share2Icon />
         {shareUrl ? 'Re-publish' : 'Publish'}
       </Button>
@@ -1558,3 +1731,40 @@
     {/if}
   </Sheet.Content>
 </Sheet.Root>
+
+<!-- GitHub sign-in dialog (shared, opened from topbar or Share preview) -->
+<GithubSignInDialog bind:open={signInOpen} onSignedIn={onGithubSignedIn} />
+
+<!-- LGS port settings dialog -->
+<Dialog.Root bind:open={portSettingsOpen}>
+  <Dialog.Content class="max-w-sm">
+    <Dialog.Header>
+      <Dialog.Title>LGS port</Dialog.Title>
+      <Dialog.Description>
+        TCP port the local game server binds to (1024-65535). Changing it while
+        the LGS is running will restart it on the new port.
+      </Dialog.Description>
+    </Dialog.Header>
+    <div class="my-4 space-y-2">
+      <Label for="lgsPortInput">Port</Label>
+      <Input
+        id="lgsPortInput"
+        type="number"
+        min={1024}
+        max={65535}
+        bind:value={lgsPort}
+        class="font-mono-tab"
+      />
+      <p class="text-xs text-muted-foreground">
+        Default: <span class="font-mono-tab">{DEFAULT_PORT}</span>. The test view URL
+        will be <span class="font-mono-tab">https://localhost:{lgsPort}/test/</span>.
+      </p>
+    </div>
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => (portSettingsOpen = false)}>Cancel</Button>
+      <Button onclick={() => applyLgsPortAndRestart(lgsPort)}>
+        {status.running ? 'Save & restart LGS' : 'Save'}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { openUrl } from '@tauri-apps/plugin-opener';
 
@@ -20,7 +20,6 @@
   import LogOutIcon from '@lucide/svelte/icons/log-out';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import SendIcon from '@lucide/svelte/icons/send';
-  import CopyIcon from '@lucide/svelte/icons/copy';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -28,13 +27,13 @@
   import {
     githubAuth,
     teamsApi,
-    type DeviceCode,
     type DiscoveredTeam,
     type GithubOrg,
     type GithubUser,
     type SyncReport,
     type Team
   } from '$lib/api';
+  import GithubSignInDialog from '$lib/components/GithubSignInDialog.svelte';
 
   let user = $state<GithubUser | null>(null);
   let loading = $state(true);
@@ -43,13 +42,7 @@
   let teams = $state<Team[]>([]);
   let activeTeamId = $state<string | null>(null);
 
-  // Device flow dialog state
-  let deviceOpen = $state(false);
-  let deviceCode = $state<DeviceCode | null>(null);
-  let devicePolling = $state(false);
-  let pollTimeout: number | null = null;
-  let pollCancelled = false;
-  let currentPollInterval = 5;
+  let signInOpen = $state(false);
 
   // Create team dialog
   let createOpen = $state(false);
@@ -104,16 +97,10 @@
     }
   }
 
-  onDestroy(() => {
-    cancelPollTimer();
-  });
-
-  function cancelPollTimer() {
-    pollCancelled = true;
-    if (pollTimeout !== null) {
-      clearTimeout(pollTimeout);
-      pollTimeout = null;
-    }
+  async function onSignedIn(u: GithubUser) {
+    user = u;
+    await refreshTeams();
+    refreshOrgs().catch(() => {});
   }
 
   async function refreshTeams() {
@@ -130,76 +117,6 @@
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       busy = false;
-    }
-  }
-
-  // ---- Device flow ----
-
-  async function startDeviceFlow() {
-    try {
-      deviceCode = await githubAuth.startDeviceFlow();
-      deviceOpen = true;
-      devicePolling = true;
-      pollCancelled = false;
-      currentPollInterval = Math.max(5, deviceCode.interval);
-      try {
-        await openUrl(deviceCode.verification_uri);
-      } catch {
-        /* user will open manually */
-      }
-      scheduleNextPoll(currentPollInterval);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  function scheduleNextPoll(delaySeconds: number) {
-    if (pollCancelled) return;
-    if (pollTimeout !== null) clearTimeout(pollTimeout);
-    pollTimeout = window.setTimeout(pollOnce, delaySeconds * 1000);
-  }
-
-  async function pollOnce() {
-    pollTimeout = null;
-    if (pollCancelled || !deviceCode) return;
-    try {
-      const result = await githubAuth.pollDeviceFlow(
-        deviceCode.device_code,
-        currentPollInterval
-      );
-      currentPollInterval = result.next_interval_secs;
-      if (result.auth) {
-        cancelPollTimer();
-        devicePolling = false;
-        deviceOpen = false;
-        user = result.auth.user;
-        toast.success(`Signed in as @${result.auth.user.login}`);
-        await refreshTeams();
-        return;
-      }
-      scheduleNextPoll(currentPollInterval);
-    } catch (e) {
-      cancelPollTimer();
-      devicePolling = false;
-      deviceOpen = false;
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  function cancelDeviceFlow() {
-    cancelPollTimer();
-    devicePolling = false;
-    deviceOpen = false;
-    deviceCode = null;
-  }
-
-  async function copyDeviceCode() {
-    if (!deviceCode) return;
-    try {
-      await navigator.clipboard.writeText(deviceCode.user_code);
-      toast.success('Code copied');
-    } catch {
-      toast.error('Could not copy to clipboard');
     }
   }
 
@@ -425,7 +342,7 @@
         </Card.Description>
       </Card.Header>
       <Card.Content>
-        <Button size="lg" onclick={startDeviceFlow} disabled={busy}>
+        <Button size="lg" onclick={() => (signInOpen = true)} disabled={busy}>
           <LogInIcon />
           Sign in with GitHub
         </Button>
@@ -559,49 +476,7 @@
   {/if}
 </main>
 
-<!-- Device Flow dialog -->
-<Dialog.Root
-  open={deviceOpen}
-  onOpenChange={(v) => {
-    if (!v) cancelDeviceFlow();
-  }}
->
-  <Dialog.Content>
-    <Dialog.Header>
-      <Dialog.Title>Authorize on GitHub</Dialog.Title>
-      <Dialog.Description>
-        A browser window opened to {deviceCode?.verification_uri}. Enter this code:
-      </Dialog.Description>
-    </Dialog.Header>
-    {#if deviceCode}
-      <div class="my-4 flex items-center justify-center gap-2">
-        <code
-          class="font-mono-tab rounded-md border bg-muted px-4 py-3 text-2xl tracking-[0.35em]"
-        >
-          {deviceCode.user_code}
-        </code>
-        <Button variant="ghost" size="icon" onclick={copyDeviceCode}>
-          <CopyIcon />
-        </Button>
-      </div>
-      <div class="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-        {#if devicePolling}
-          <span class="h-2 w-2 animate-pulse rounded-full bg-blue-500"></span>
-          Waiting for you to authorize…
-        {/if}
-      </div>
-    {/if}
-    <Dialog.Footer>
-      <Button variant="outline" onclick={cancelDeviceFlow}>Cancel</Button>
-      {#if deviceCode}
-        <Button variant="secondary" onclick={() => openUrl(deviceCode!.verification_uri)}>
-          <ExternalLinkIcon />
-          Reopen GitHub
-        </Button>
-      {/if}
-    </Dialog.Footer>
-  </Dialog.Content>
-</Dialog.Root>
+<GithubSignInDialog bind:open={signInOpen} {onSignedIn} />
 
 <!-- Create team dialog -->
 <Dialog.Root bind:open={createOpen}>

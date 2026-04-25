@@ -74,7 +74,11 @@ async fn split_one(
 ) -> Result<StagedFile> {
     let meta = fs::metadata(src).await?;
     let size = meta.len();
-    let total_parts = if size == 0 { 1 } else { size.div_ceil(CHUNK_SIZE) };
+    let total_parts = if size == 0 {
+        1
+    } else {
+        size.div_ceil(CHUNK_SIZE)
+    };
 
     // First pass: compute whole-file SHA + per-chunk SHA + name.
     let mut file = fs::File::open(src).await?;

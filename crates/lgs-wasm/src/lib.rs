@@ -154,9 +154,26 @@ fn default_auth_config(game: &str) -> AuthConfig {
         step_bet: 20_000,
         default_bet_level: 200_000,
         bet_levels: vec![
-            20_000, 40_000, 60_000, 80_000, 100_000, 200_000, 400_000, 600_000, 800_000,
-            1_000_000, 2_000_000, 4_000_000, 6_000_000, 8_000_000, 10_000_000, 20_000_000,
-            40_000_000, 60_000_000, 80_000_000, 100_000_000,
+            20_000,
+            40_000,
+            60_000,
+            80_000,
+            100_000,
+            200_000,
+            400_000,
+            600_000,
+            800_000,
+            1_000_000,
+            2_000_000,
+            4_000_000,
+            6_000_000,
+            8_000_000,
+            10_000_000,
+            20_000_000,
+            40_000_000,
+            60_000_000,
+            80_000_000,
+            100_000_000,
         ],
         bet_modes: serde_json::json!({}),
         jurisdiction: JurisdictionFlags {
@@ -229,8 +246,8 @@ impl PreviewEngine {
     #[wasm_bindgen(js_name = loadManifest)]
     pub async fn load_manifest(&mut self, url: String) -> Result<(), JsValue> {
         let text = fetch_text(&url).await?;
-        let m: ChunkManifest = serde_json::from_str(&text)
-            .map_err(|e| js_err(&format!("parse manifest: {e}")))?;
+        let m: ChunkManifest =
+            serde_json::from_str(&text).map_err(|e| js_err(&format!("parse manifest: {e}")))?;
         self.manifest = Some(m);
         Ok(())
     }
@@ -244,8 +261,8 @@ impl PreviewEngine {
         }
         let url = format!("{}/index.json", self.base_url);
         let text = fetch_text(&url).await?;
-        let cfg: GameConfig = serde_json::from_str(&text)
-            .map_err(|e| js_err(&format!("parse index.json: {e}")))?;
+        let cfg: GameConfig =
+            serde_json::from_str(&text).map_err(|e| js_err(&format!("parse index.json: {e}")))?;
         self.config = Some(cfg);
         Ok(())
     }
@@ -272,17 +289,14 @@ impl PreviewEngine {
         let weights_bytes = self.fetch_math_file(&mode.weights).await?;
         let books_bytes = self.fetch_math_file(&mode.events).await?;
 
-        let weights_text = String::from_utf8(weights_bytes)
-            .map_err(|e| js_err(&format!("weights utf8: {e}")))?;
+        let weights_text =
+            String::from_utf8(weights_bytes).map_err(|e| js_err(&format!("weights utf8: {e}")))?;
         let sampler = parse_weights(&weights_text)
             .map_err(|e| js_err(&format!("parse {}: {e}", mode.weights)))?;
         let books = decompress_and_index(&books_bytes)
             .map_err(|e| js_err(&format!("decompress {}: {e}", mode.events)))?;
 
-        self.modes.insert(
-            mode_name,
-            ModeAssets { sampler, books },
-        );
+        self.modes.insert(mode_name, ModeAssets { sampler, books });
         Ok(())
     }
 }
@@ -300,11 +314,8 @@ impl PreviewEngine {
                     // redirects to a CORS-enabled S3 URL when the request
                     // sets `Accept: application/octet-stream`. Without this
                     // header GitHub returns asset metadata as JSON instead.
-                    let bytes = fetch_bytes_with_accept(
-                        &chunk.url,
-                        "application/octet-stream",
-                    )
-                    .await?;
+                    let bytes =
+                        fetch_bytes_with_accept(&chunk.url, "application/octet-stream").await?;
                     out.extend_from_slice(&bytes);
                 }
                 return Ok(out);
@@ -514,8 +525,8 @@ fn parse_weights(text: &str) -> Result<WeightSampler, String> {
 }
 
 fn decompress_and_index(compressed: &[u8]) -> Result<BooksIndex, String> {
-    let mut decoder = ruzstd::StreamingDecoder::new(compressed)
-        .map_err(|e| format!("zstd init: {e}"))?;
+    let mut decoder =
+        ruzstd::StreamingDecoder::new(compressed).map_err(|e| format!("zstd init: {e}"))?;
     let mut buffer = Vec::with_capacity(compressed.len() * 4);
     decoder
         .read_to_end(&mut buffer)
@@ -610,18 +621,14 @@ fn read_event(idx: &BooksIndex, event_id: u32) -> Result<serde_json::Value, Stri
         .get(&event_id)
         .ok_or_else(|| format!("event {event_id} not found"))?;
     let slice = &idx.buffer[start as usize..end as usize];
-    let line_str =
-        std::str::from_utf8(slice).map_err(|e| format!("event {event_id} utf8: {e}"))?;
+    let line_str = std::str::from_utf8(slice).map_err(|e| format!("event {event_id} utf8: {e}"))?;
 
     // Same shape transformation as the native LGS: if the line is a Book
     // wrapper with an `events` array, return that array; otherwise return
     // the whole object.
     let parsed: serde_json::Value =
         serde_json::from_str(line_str).map_err(|e| format!("event {event_id} json: {e}"))?;
-    let out = parsed
-        .get("events")
-        .cloned()
-        .unwrap_or(parsed);
+    let out = parsed.get("events").cloned().unwrap_or(parsed);
     Ok(out)
 }
 
@@ -635,7 +642,11 @@ async fn fetch_text(url: &str) -> Result<String, JsValue> {
         .await
         .map_err(|e| js_err(&format!("fetch {url}: {e}")))?;
     if !resp.ok() {
-        return Err(js_err(&format!("fetch {url}: {} {}", resp.status(), resp.status_text())));
+        return Err(js_err(&format!(
+            "fetch {url}: {} {}",
+            resp.status(),
+            resp.status_text()
+        )));
     }
     resp.text()
         .await
@@ -648,7 +659,11 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, JsValue> {
         .await
         .map_err(|e| js_err(&format!("fetch {url}: {e}")))?;
     if !resp.ok() {
-        return Err(js_err(&format!("fetch {url}: {} {}", resp.status(), resp.status_text())));
+        return Err(js_err(&format!(
+            "fetch {url}: {} {}",
+            resp.status(),
+            resp.status_text()
+        )));
     }
     resp.binary()
         .await
@@ -662,7 +677,11 @@ async fn fetch_bytes_with_accept(url: &str, accept: &str) -> Result<Vec<u8>, JsV
         .await
         .map_err(|e| js_err(&format!("fetch {url}: {e}")))?;
     if !resp.ok() {
-        return Err(js_err(&format!("fetch {url}: {} {}", resp.status(), resp.status_text())));
+        return Err(js_err(&format!(
+            "fetch {url}: {} {}",
+            resp.status(),
+            resp.status_text()
+        )));
     }
     resp.binary()
         .await
