@@ -31,7 +31,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Setup Rust (stable + clippy + rustfmt)
+      - name: Setup Rust (stable + clippy + rustfmt + wasm32 target)
         shell: bash
         run: |
           # Retry rustup to mitigate transient network failures on runners.
@@ -42,12 +42,20 @@ jobs:
           done
           rustup default stable
           rustup component add clippy rustfmt
+          rustup target add wasm32-unknown-unknown
           rustc --version
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: 'latest'
+
       # tauri::generate_context! evaluates frontendDist at compile time, so
       # ui/build must exist before any cargo command in the desktop crate.
+      # crates/lgs-wasm/pkg/ must also exist because preview.rs embeds it via
+      # include_dir!() at macro expansion.
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -58,6 +66,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile=false
+      - run: pnpm wasm:build
       - run: pnpm --filter ui build
 
       - run: cargo fmt --all -- --check

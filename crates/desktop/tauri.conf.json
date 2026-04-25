@@ -5,7 +5,7 @@
   "identifier": "bet.playandchill.stakedevtool",
   "build": {
     "beforeDevCommand": "pnpm --filter ui dev",
-    "beforeBuildCommand": "pnpm --filter ui build",
+    "beforeBuildCommand": "pnpm wasm:build && pnpm --filter ui build",
     "devUrl": "http://localhost:5180",
     "frontendDist": "../../ui/build"
   },

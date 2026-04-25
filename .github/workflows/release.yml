@@ -49,7 +49,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Setup Rust (stable + targets)
+      - name: Setup Rust (stable + targets + wasm32)
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -59,7 +59,7 @@ jobs:
           done
           rustup default stable
           for attempt in 1 2 3; do
-            rustup target add ${{ matrix.rust-targets }} && break
+            rustup target add ${{ matrix.rust-targets }} wasm32-unknown-unknown && break
             echo "target add attempt $attempt failed, retrying in 10s..." >&2
             sleep 10
           done
@@ -69,6 +69,11 @@ jobs:
         with:
           workspaces: '. -> target'
           key: ${{ matrix.platform }}
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: 'latest'
 
       - uses: pnpm/action-setup@v4
         with:
@@ -80,6 +85,9 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile=false
+      # crates/lgs-wasm/pkg/ is generated here and embedded by preview.rs via
+      # include_dir!() — must run before any cargo command.
+      - run: pnpm wasm:build
       - run: pnpm --filter ui build
 
       # The git tag is the source of truth for the release version.
