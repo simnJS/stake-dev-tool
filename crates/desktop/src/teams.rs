@@ -1129,6 +1129,14 @@ async fn sync_saved_rounds(client: &GithubClient, team: &Team) -> Result<(u32, u
                 continue;
             }
         };
+        // Defensive symmetry with the push filter above: if the team repo
+        // contains a round whose game isn't catalogued by this team (legacy
+        // data from before the push filter, or a manual push outside the
+        // app), don't pull it into the local DB. Otherwise the user accumulates
+        // orphan bookmarks for games they may not have pulled.
+        if !team_slugs.contains(&remote_r.game_slug) {
+            continue;
+        }
         if !local_ids.contains(id) {
             lgs::saved_rounds::upsert_raw(remote_r).await?;
             pulled += 1;
