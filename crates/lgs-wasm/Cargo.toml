@@ -3,7 +3,10 @@ name = "lgs-wasm"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-license.workspace = true
+# Hardcoded (not `license.workspace = true`) because wasm-pack's manifest
+# parser doesn't follow workspace inheritance for `license` — it errors
+# with "invalid type: map, expected a string" on `pnpm wasm:build`.
+license = "MIT"
 description = "Browser-side preview engine for Stake Dev Tool — replaces the local RGS with WASM so previews can be shared via a static URL."
 
 [lib]
