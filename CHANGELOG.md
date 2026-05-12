@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-05-12
+
+### Fixed
+
+- **Bet levels expanded to match the RGS catalogue.** Previous range topped
+  out at 100M with 20 entries; the preview now exposes 45 entries covering
+  10k to 2B so it matches what production games offer. `MIN_BET` and
+  `STEP_BET` are lowered to 10k so the new first level is reachable.
+
 ## [1.0.1] — 2026-04-25
 
 ### Fixed
