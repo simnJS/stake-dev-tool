@@ -17,6 +17,7 @@ use tokio_stream::{Stream, StreamExt};
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route("/api/devtool/sessions", delete(reset_sessions))
         .route("/api/devtool/sessions/prepare", post(prepare_session))
         .route("/api/devtool/status", get(status))
         .route("/api/devtool/settings", get(get_settings_handler))
@@ -97,8 +98,13 @@ async fn prepare_session(
         balance: body.balance,
         currency: body.currency.as_deref().map(intern_currency),
     };
-    state.sessions.upsert(&body.session_id, init);
+    state.sessions.prepare(&body.session_id, init);
     Ok(Json(PrepareSessionResponse { ok: true }))
+}
+
+async fn reset_sessions(State(state): State<Arc<AppState>>) -> AppResult<Json<OkResponse>> {
+    state.sessions.reset_all()?;
+    Ok(Json(OkResponse { ok: true }))
 }
 
 #[derive(Serialize)]

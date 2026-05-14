@@ -359,7 +359,7 @@ pub async fn prepare_session(
         balance: payload.balance,
         currency: payload.currency.as_deref().map(intern_currency),
     };
-    lgs_state.sessions.upsert(&payload.session_id, init);
+    lgs_state.sessions.prepare(&payload.session_id, init);
     Ok(())
 }
 

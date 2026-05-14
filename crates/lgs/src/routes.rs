@@ -52,7 +52,7 @@ async fn authenticate(
             amount: session.balance,
             currency: session.currency,
         },
-        round: None,
+        round: session.active_round,
         config: config::auth_config(),
         meta: None,
     }))

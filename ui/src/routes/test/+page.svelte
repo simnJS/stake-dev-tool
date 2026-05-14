@@ -9,6 +9,7 @@
     settingsHttp,
     forcedEventHttp,
     savedRoundsHttp,
+    sessionsHttp,
     betStatsHttp,
     gameModesHttp,
     replayUrl,
@@ -94,6 +95,7 @@
   function rebuildFramesFromResolutions(prev: FrameState[] = []) {
     const enabled = allResolutions.filter((r) => r.enabled);
     const byId = new Map(prev.map((f) => [f.res.id, f]));
+    const persisted = loadPersistedFrameSessionIds();
     frames = enabled.map((res) => {
       const existing = byId.get(res.id);
       if (existing) {
@@ -102,13 +104,14 @@
       }
       return {
         res,
-        sessionId: crypto.randomUUID(),
+        sessionId: persisted[res.id] ?? defaultSessionIdFor(res.id),
         src: null,
         muted: true,
         history: [],
         showHistory: false
       };
     });
+    persistFrameSessionIds();
   }
 
   // Falls back to ['base'] while loading so the dropdowns are never empty.
@@ -400,6 +403,33 @@
   // We're served by the LGS itself, so APIs are same-origin.
   const lgsBase = `${location.origin}`;
   const lgsHostPort = location.host;
+  const SESSION_STORAGE_PREFIX = 'stake-dev-tool:test-sessions:';
+
+  function frameSessionStorageKey(): string | null {
+    if (!gameSlug || !gameUrl) return null;
+    return `${SESSION_STORAGE_PREFIX}${gameSlug}:${gameUrl}`;
+  }
+
+  function defaultSessionIdFor(resolutionId: string): string {
+    return `stake-dev-tool:${gameSlug}:${resolutionId}`;
+  }
+
+  function loadPersistedFrameSessionIds(): Record<string, string> {
+    const key = frameSessionStorageKey();
+    if (!key) return {};
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  function persistFrameSessionIds() {
+    const key = frameSessionStorageKey();
+    if (!key) return;
+    const sessionIds = Object.fromEntries(frames.map((f) => [f.res.id, f.sessionId]));
+    localStorage.setItem(key, JSON.stringify(sessionIds));
+  }
 
   onMount(async () => {
     const params = page.url.searchParams;
@@ -523,8 +553,9 @@
     }
   }
 
-  async function reloadFrame(frame: FrameState, regenerateSession = true) {
+  async function reloadFrame(frame: FrameState, regenerateSession = false) {
     if (regenerateSession) frame.sessionId = crypto.randomUUID();
+    persistFrameSessionIds();
     await prepareSession(frame.sessionId);
     frame.src = buildGameUrlFor(frame.sessionId);
   }
@@ -539,6 +570,30 @@
         await new Promise((r) => setTimeout(r, 800));
       }
       toast.success(`Reloaded ${frames.length} frames · balance=${balance} ${currency}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function resetSessions() {
+    if (!confirm('Reset all saved sessions and reload every frame?')) return;
+    busy = true;
+    try {
+      await sessionsHttp.reset();
+      frames.forEach((f) => {
+        f.sessionId = defaultSessionIdFor(f.res.id);
+        f.src = null;
+        f.history = [];
+        f.showHistory = false;
+      });
+      persistFrameSessionIds();
+      for (const f of frames) {
+        await reloadFrame(f);
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      toast.success('Sessions reset.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -671,6 +726,17 @@
           <Button onclick={reloadAll} disabled={busy} class="w-full" size="default">
             <RefreshIcon class="h-4 w-4" />
             Apply &amp; reload all
+          </Button>
+
+          <Button
+            onclick={resetSessions}
+            disabled={busy}
+            class="w-full"
+            size="default"
+            variant="destructive"
+          >
+            <TrashIcon class="h-4 w-4" />
+            Reset sessions
           </Button>
 
           <div class="grid grid-cols-2 gap-1.5">
@@ -1275,7 +1341,7 @@
                 {/each}
               </div>
               <div class="border-t bg-muted/20 px-3 py-1 text-xs text-muted-foreground">
-                Last 100 spins, newest first. Resets when the frame is reloaded.
+                Last 100 spins, newest first. Persists until sessions are reset.
               </div>
             </div>
           {/if}
