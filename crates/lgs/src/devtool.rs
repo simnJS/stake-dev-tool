@@ -1,3 +1,4 @@
+use crate::config::intern_currency;
 use crate::error::{AppError, AppResult};
 use crate::saved_rounds;
 use crate::session::SessionInit;
@@ -53,20 +54,6 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/devtool/bet-stats/:game", get(get_bet_stats))
         .route("/api/devtool/games/:game/modes", get(get_game_modes))
         .with_state(state)
-}
-
-const SUPPORTED_CURRENCIES: &[&str] = &[
-    "USD", "CAD", "JPY", "EUR", "RUB", "CNY", "PHP", "INR", "IDR", "KRW", "BRL", "MXN", "DKK",
-    "PLN", "VND", "TRY", "CLP", "ARS", "PEN", "NGN", "SAR", "ILS", "AED", "TWD", "NOK", "KWD",
-    "JOD", "CRC", "TND", "SGD", "MYR", "OMR", "QAR", "BHD", "XGC", "XSC",
-];
-
-fn intern_currency(c: &str) -> &'static str {
-    SUPPORTED_CURRENCIES
-        .iter()
-        .copied()
-        .find(|s| s.eq_ignore_ascii_case(c))
-        .unwrap_or("USD")
 }
 
 #[derive(Deserialize)]

@@ -29,7 +29,7 @@ fn resolve_ui_dir() -> Option<PathBuf> {
     }
     None
 }
-use lgs::config::ServerConfig;
+use lgs::config::{ServerConfig, intern_currency};
 use lgs::math_engine::MathEngine;
 use lgs::session::{SessionInit, SessionStore};
 use lgs::settings as lgs_settings;
@@ -325,20 +325,6 @@ pub struct PrepareSession {
     pub currency: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
-}
-
-const SUPPORTED_CURRENCIES: &[&str] = &[
-    "USD", "CAD", "JPY", "EUR", "RUB", "CNY", "PHP", "INR", "IDR", "KRW", "BRL", "MXN", "DKK",
-    "PLN", "VND", "TRY", "CLP", "ARS", "PEN", "NGN", "SAR", "ILS", "AED", "TWD", "NOK", "KWD",
-    "JOD", "CRC", "TND", "SGD", "MYR", "OMR", "QAR", "BHD", "XGC", "XSC",
-];
-
-fn intern_currency(c: &str) -> &'static str {
-    SUPPORTED_CURRENCIES
-        .iter()
-        .copied()
-        .find(|s| s.eq_ignore_ascii_case(c))
-        .unwrap_or("USD")
 }
 
 #[tauri::command]
