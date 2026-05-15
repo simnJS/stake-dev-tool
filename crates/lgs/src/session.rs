@@ -1,14 +1,7 @@
 use crate::config::{self, intern_currency};
 use crate::types::{EventEntry, Round, Session};
 use anyhow::{Context, Result, anyhow};
-use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
-use parking_lot::Mutex;
-use rusqlite::{Connection, Row, params};
-use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use parking_lot::Mutex;
 use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
