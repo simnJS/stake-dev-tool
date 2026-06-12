@@ -58,6 +58,7 @@
 
   type FrameState = {
     res: ResolutionPreset;
+    displayViewportId: string;
     sessionId: string;
     src: string | null;
     muted: boolean;
@@ -100,14 +101,17 @@
     const enabled = allResolutions.filter((r) => r.enabled);
     const byId = new Map(prev.map((f) => [f.res.id, f]));
     const persisted = loadPersistedFrameSessionIds();
+    const persistedDisplay = loadPersistedDisplayViewportIds();
     frames = enabled.map((res) => {
       const existing = byId.get(res.id);
       if (existing) {
         existing.res = res;
+        existing.displayViewportId ||= persistedDisplay[res.id] ?? res.id;
         return existing;
       }
       return {
         res,
+        displayViewportId: persistedDisplay[res.id] ?? res.id,
         sessionId: persisted[res.id] ?? defaultSessionIdFor(res.id),
         src: null,
         muted: true,
@@ -432,6 +436,10 @@
   const lgsHostPort = location.host;
   const SESSION_STORAGE_PREFIX = 'stake-dev-tool:test-sessions:';
   const SIDEBAR_COLLAPSED_STORAGE_KEY = 'stake-dev-tool:test-sidebar-collapsed';
+  const VIEWPORT_STORAGE_PREFIX = 'stake-dev-tool:test-display-viewports:';
+  const FULLSCREEN_VIEWPORT_ID = '__fullscreen';
+
+  const activeFrame = $derived(frames[0] ?? null);
 
   function frameSessionStorageKey(): string | null {
     if (!gameSlug || !gameUrl) return null;
@@ -457,6 +465,70 @@
     if (!key) return;
     const sessionIds = Object.fromEntries(frames.map((f) => [f.res.id, f.sessionId]));
     localStorage.setItem(key, JSON.stringify(sessionIds));
+  }
+
+  function displayViewportStorageKey(): string | null {
+    if (!gameSlug || !gameUrl) return null;
+    return `${VIEWPORT_STORAGE_PREFIX}${gameSlug}:${gameUrl}`;
+  }
+
+  function loadPersistedDisplayViewportIds(): Record<string, string> {
+    const key = displayViewportStorageKey();
+    if (!key) return {};
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+
+  function persistDisplayViewportIds() {
+    const key = displayViewportStorageKey();
+    if (!key) return;
+    try {
+      const displayIds = Object.fromEntries(frames.map((f) => [f.res.id, f.displayViewportId]));
+      localStorage.setItem(key, JSON.stringify(displayIds));
+    } catch {
+      // Storage is only a convenience for the test view.
+    }
+  }
+
+  function normalizeFrameDisplayViewport(frame: FrameState) {
+    if (frame.displayViewportId === FULLSCREEN_VIEWPORT_ID) return;
+    if (!allResolutions.some((r) => r.id === frame.displayViewportId)) {
+      frame.displayViewportId = frame.res.id;
+    }
+  }
+
+  function normalizeAllDisplayViewports() {
+    frames.forEach(normalizeFrameDisplayViewport);
+    persistDisplayViewportIds();
+  }
+
+  function selectFrameViewport(frame: FrameState, id: string) {
+    frame.displayViewportId = id;
+    normalizeFrameDisplayViewport(frame);
+    persistDisplayViewportIds();
+  }
+
+  function displayViewportResolution(frame: FrameState): ResolutionPreset {
+    return allResolutions.find((r) => r.id === frame.displayViewportId) ?? frame.res;
+  }
+
+  function isFrameFullscreen(frame: FrameState): boolean {
+    return frame.displayViewportId === FULLSCREEN_VIEWPORT_ID;
+  }
+
+  function viewportWidthStyle(frame: FrameState): string {
+    const res = displayViewportResolution(frame);
+    return isFrameFullscreen(frame) ? 'width: 100%;' : `width: ${res.width}px;`;
+  }
+
+  function viewportBoxStyle(frame: FrameState): string {
+    const res = displayViewportResolution(frame);
+    return isFrameFullscreen(frame)
+      ? 'width: 100%;'
+      : `width: ${res.width}px; height: ${res.height}px;`;
   }
 
   function loadPersistedSidebarCollapsed() {
@@ -490,6 +562,7 @@
       const s = await settingsHttp.get();
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions();
+      normalizeAllDisplayViewports();
       const f = await forcedEventHttp.get();
       forcedEventBanner = f.forced;
       await reloadSavedRounds();
@@ -521,6 +594,7 @@
       const s = await settingsHttp.toggle(id, enabled);
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions(frames);
+      normalizeAllDisplayViewports();
       const newlyEnabled = frames.filter((f) => f.src === null);
       for (const f of newlyEnabled) {
         await reloadFrame(f);
@@ -544,6 +618,7 @@
       const s = await settingsHttp.addCustom(label, newCustomWidth, newCustomHeight);
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions(frames);
+      normalizeAllDisplayViewports();
       newCustomLabel = '';
       const last = frames[frames.length - 1];
       if (last && last.src === null) await reloadFrame(last);
@@ -562,6 +637,7 @@
       const s = await settingsHttp.deleteCustom(id);
       allResolutions = s.resolutions;
       rebuildFramesFromResolutions(frames);
+      normalizeAllDisplayViewports();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -608,15 +684,18 @@
   }
 
   async function reloadAll() {
+    if (frames.length === 0) {
+      toast.error('Enable at least one resolution before reloading.');
+      return;
+    }
     busy = true;
     try {
-      // Clear all iframes first, then load one at a time to avoid WebGL races.
       frames.forEach((f) => (f.src = null));
       for (const f of frames) {
         await reloadFrame(f);
         await new Promise((r) => setTimeout(r, 800));
       }
-      toast.success(`Reloaded ${frames.length} frames · balance=${balance} ${currency}`);
+      toast.success(`Reloaded ${frames.length} frames - balance=${balance} ${currency}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1131,8 +1210,8 @@
                   <Button
                     size="sm"
                     class="mt-6 h-9 bg-sky-500 text-zinc-950 hover:bg-sky-400"
-                    disabled={busy || frames.length === 0 || replayAmount < 0.01 || replayAmount > 1000}
-                    onclick={() => frames[0] && launchReplay(frames[0])}
+                    disabled={busy || !activeFrame || replayAmount < 0.01 || replayAmount > 1000}
+                    onclick={() => activeFrame && launchReplay(activeFrame)}
                   >
                     Load
                   </Button>
@@ -1258,11 +1337,34 @@
       {#each frames as frame (frame.res.id)}
         <div class="flex flex-col">
           <!-- Frame header -->
-          <div class="mb-2 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2 text-sm">
-              <span class="font-semibold">{frame.res.label}</span>
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <Label for="viewport-select-{frame.res.id}" class="text-xs uppercase tracking-wider text-muted-foreground">
+                Viewport
+              </Label>
+              <select
+                id="viewport-select-{frame.res.id}"
+                value={frame.displayViewportId}
+                onchange={(e) => selectFrameViewport(frame, (e.currentTarget as HTMLSelectElement).value)}
+                disabled={busy}
+                class="border-input bg-background ring-offset-background focus-visible:ring-ring h-9 rounded-md border px-3 py-1 font-mono text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                <option value={FULLSCREEN_VIEWPORT_ID}>Fullscreen (fit browser)</option>
+                {#each allResolutions as r (r.id)}
+                  <option value={r.id}>
+                    {r.label} - {r.width}x{r.height}
+                  </option>
+                {/each}
+              </select>
+              <span class="font-semibold">
+                {isFrameFullscreen(frame) ? 'Fullscreen' : displayViewportResolution(frame).label}
+              </span>
               <span class="font-mono-tab text-muted-foreground">
-                {frame.res.width}×{frame.res.height}
+                {#if isFrameFullscreen(frame)}
+                  fit browser
+                {:else}
+                  {displayViewportResolution(frame).width}x{displayViewportResolution(frame).height}
+                {/if}
               </span>
             </div>
             <div class="flex items-center gap-1">
@@ -1305,7 +1407,7 @@
                       </Button>
                     {/snippet}
                   </Tooltip.Trigger>
-                  <Tooltip.Content>Reload this frame</Tooltip.Content>
+                  <Tooltip.Content>Reload this viewport</Tooltip.Content>
                 </Tooltip.Root>
 
                 <Tooltip.Root>
@@ -1330,9 +1432,10 @@
           </div>
 
           <!-- Last-event strip -->
+          <div class="{isFrameFullscreen(frame) ? 'flex h-[calc(100vh-9rem)] min-h-[360px] flex-col' : ''}">
           <div
             class="mb-1.5 flex items-center gap-3 rounded-md border bg-card/50 px-3 py-2"
-            style="width: {frame.res.width}px;"
+            style={viewportWidthStyle(frame)}
           >
             {#if frame.history[0]}
               {@const last = frame.history[0]}
@@ -1355,8 +1458,8 @@
 
           <!-- Iframe -->
           <div
-            class="relative overflow-hidden rounded-lg border bg-black shadow-xl"
-            style="width: {frame.res.width}px; height: {frame.res.height}px;"
+            class="relative overflow-hidden rounded-lg border bg-black shadow-xl {isFrameFullscreen(frame) ? 'min-h-[240px] flex-1' : ''}"
+            style={viewportBoxStyle(frame)}
           >
             {#if frame.src}
               <iframe
@@ -1391,7 +1494,7 @@
             onclick={() => (frame.showHistory = !frame.showHistory)}
             disabled={frame.history.length === 0}
             title="Toggle event history"
-            style="width: {frame.res.width}px;"
+            style={viewportWidthStyle(frame)}
             class="mt-1.5 flex items-center justify-between gap-2 rounded-md border bg-card/50 px-3 py-2 text-sm font-medium uppercase tracking-wider text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:opacity-40"
           >
             <span class="flex items-center gap-1.5">
@@ -1404,7 +1507,7 @@
           {#if frame.showHistory && frame.history.length > 0}
             <div
               class="mt-1 overflow-hidden rounded-md border bg-card/50"
-              style="width: {frame.res.width}px;"
+              style={viewportWidthStyle(frame)}
             >
               <div class="grid grid-cols-[auto_auto_auto_1fr_auto_auto_auto] items-center gap-x-3 border-b bg-muted/30 px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 <span></span>
@@ -1464,7 +1567,13 @@
             </div>
           {/if}
         </div>
+        </div>
       {/each}
+      {#if frames.length === 0}
+        <div class="flex h-full min-h-[360px] flex-1 items-center justify-center rounded-lg border border-dashed bg-card/30 text-sm text-muted-foreground">
+          Enable at least one resolution to load the game viewport.
+        </div>
+      {/if}
     </div>
   </main>
 </div>
